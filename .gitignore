@@ -1,0 +1,25 @@
+# Zig Specific
+zig-cache/
+.zig-cache/
+zig-out/
+
+*.tmp
+*.log
+
+# Distribution
+bin/
+tmp/
+temp/
+
+# System / misc
+.DS_Store
+
+# Local databases
+*.db
+*.sqlite
+logs/
+coverage-out/
+
+.env
+config.json
+linked-mind
