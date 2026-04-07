@@ -339,4 +339,80 @@ pub const Graph = struct {
         const union_size = set1.count() + set2.count() - intersection;
         return @as(f32, @floatFromInt(intersection)) / @as(f32, @floatFromInt(union_size));
     }
+
+    pub fn exportGraphJSON(self: *Graph) ![]const u8 {
+        const NodeObj = struct {
+            id: []const u8,
+            title: []const u8,
+            group: usize,
+        };
+
+        const LinkObj = struct {
+            source: []const u8,
+            target: []const u8,
+            type: []const u8,
+        };
+
+        const GraphObj = struct {
+            nodes: []NodeObj,
+            links: []LinkObj,
+        };
+
+        var nodes_arr: std.ArrayList(NodeObj) = .empty;
+        defer nodes_arr.deinit(self.allocator);
+
+        var links_arr: std.ArrayList(LinkObj) = .empty;
+        defer links_arr.deinit(self.allocator);
+
+        const clusters = try self.detectClusters();
+        defer {
+            for (clusters) |*c| c.deinit(self.allocator);
+            self.allocator.free(clusters);
+        }
+
+        var node_to_group = std.AutoHashMap(*parser.Node, usize).init(self.allocator);
+        defer node_to_group.deinit();
+
+        for (clusters, 0..) |cluster, i| {
+            for (cluster.nodes.items) |node| {
+                try node_to_group.put(node, i + 1);
+            }
+        }
+
+        var node_it = self.nodes.iterator();
+        while (node_it.next()) |entry| {
+            const node = entry.value_ptr;
+            const group = node_to_group.get(node) orelse 0;
+
+            try nodes_arr.append(.{
+                .id = node.title,
+                .title = node.title,
+                .group = group,
+            });
+
+            for (node.links.items) |link| {
+                try links_arr.append(.{
+                    .source = node.title,
+                    .target = link.target,
+                    .type = link.nature orelse "link",
+                });
+            }
+        }
+
+        const graph_obj = GraphObj{
+            .nodes = nodes_arr.items,
+            .links = links_arr.items,
+        };
+
+        var writer: std.Io.Writer.Allocating = .init(self.allocator);
+        errdefer writer.deinit();
+
+        var jw: std.json.Stringify = .{
+            .writer = &writer.writer,
+        };
+
+        try jw.write(graph_obj);
+
+        return try writer.toOwnedSlice();
+    }
 };

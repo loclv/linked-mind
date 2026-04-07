@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Linked-Mind Graph Visualizer</title>
+  <!-- Force Graph -->
+  <script src="//unpkg.com/force-graph"></script>
+  <!-- Font -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-color: #0b0c10;
+      --panel-bg: rgba(31, 40, 51, 0.6);
+      --text-main: #c5c6c7;
+      --text-highlight: #66fcf1;
+      --accent: #45a29e;
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: var(--bg-color);
+      font-family: 'Inter', sans-serif;
+      overflow: hidden;
+      color: var(--text-main);
+    }
+
+    #graph {
+      width: 100vw;
+      height: 100vh;
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+
+    /* Glassmorphism sidebar */
+    #sidebar {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      width: 320px;
+      max-height: calc(100vh - 40px);
+      overflow-y: auto;
+      background: var(--panel-bg);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+      transform: translateX(120%);
+      transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      z-index: 10;
+      scrollbar-width: thin;
+      scrollbar-color: var(--accent) transparent;
+    }
+
+    #sidebar.active {
+      transform: translateX(0);
+    }
+
+    #sidebar::-webkit-scrollbar {
+      width: 6px;
+    }
+    #sidebar::-webkit-scrollbar-thumb {
+      background-color: var(--accent);
+      border-radius: 10px;
+    }
+
+    h1, h2, h3 {
+      margin: 0 0 16px 0;
+      color: #ffffff;
+      font-weight: 600;
+    }
+
+    .app-title {
+      position: absolute;
+      top: 24px;
+      left: 24px;
+      font-size: 24px;
+      font-weight: 700;
+      color: #fff;
+      z-index: 10;
+      pointer-events: none;
+      text-shadow: 0px 0px 10px rgba(102, 252, 241, 0.4);
+      background: var(--panel-bg);
+      backdrop-filter: blur(12px);
+      padding: 12px 24px;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .app-title span {
+      color: var(--text-highlight);
+    }
+
+    .node-title {
+      font-size: 20px;
+      color: var(--text-highlight);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      padding-bottom: 12px;
+      margin-bottom: 16px;
+      word-wrap: break-word;
+    }
+
+    .meta-data {
+      margin-bottom: 24px;
+    }
+
+    .meta-item {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+
+    .meta-label {
+      color: #888;
+    }
+
+    .meta-value {
+      color: #fff;
+      font-weight: 500;
+    }
+
+    .relationships {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .relation-card {
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 8px;
+      padding: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.03);
+      transition: transform 0.2s ease, background 0.2s ease;
+      cursor: pointer;
+    }
+
+    .relation-card:hover {
+      background: rgba(102, 252, 241, 0.05);
+      transform: translateY(-2px);
+      border-color: rgba(102, 252, 241, 0.2);
+    }
+
+    .relation-type {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--accent);
+      margin-bottom: 4px;
+    }
+
+    .relation-target {
+      font-size: 14px;
+      color: #fff;
+    }
+
+    .close-btn {
+      position: absolute;
+      top: 24px;
+      right: 24px;
+      background: none;
+      border: none;
+      color: var(--text-main);
+      cursor: pointer;
+      font-size: 20px;
+      transition: color 0.2s;
+    }
+    
+    .close-btn:hover {
+      color: #fff;
+    }
+
+    /* Loader */
+    #loader {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: var(--text-highlight);
+      font-size: 18px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      animation: pulse 1.5s infinite alternate;
+    }
+
+    @keyframes pulse {
+      from { opacity: 0.4; }
+      to { opacity: 1; text-shadow: 0 0 12px var(--text-highlight); }
+    }
+    
+    .hidden {
+      display: none !important;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-title">Linked<span>Mind</span></div>
+  <div id="loader">Loading Neural Graph...</div>
+  <div id="graph"></div>
+
+  <aside id="sidebar">
+    <button class="close-btn" onclick="closeSidebar()">&times;</button>
+    <h2 class="node-title" id="side-title">Node Title</h2>
+    <div class="meta-data">
+      <div class="meta-item">
+        <span class="meta-label">Node ID</span>
+        <span class="meta-value" id="side-id">-</span>
+      </div>
+      <div class="meta-item">
+        <span class="meta-label">Cluster</span>
+        <span class="meta-value" id="side-group">-</span>
+      </div>
+      <div class="meta-item">
+        <span class="meta-label">Connections</span>
+        <span class="meta-value" id="side-degree">-</span>
+      </div>
+    </div>
+    
+    <h3>Relationships</h3>
+    <div class="relationships" id="side-relations">
+      <!-- Generated dynamically -->
+    </div>
+  </aside>
+
+  <script>
+    const colorPalette = [
+      '#66fcf1', '#45a29e', '#f2a900', '#e94b3c', '#9b59b6', '#3498db', '#e67e22', '#2ecc71', '#1abc9c', '#f39c12'
+    ];
+
+    let graphData = null;
+    let selectedNode = null;
+    const sidebar = document.getElementById('sidebar');
+
+    fetch('graph.json')
+      .then(res => res.json())
+      .then(data => {
+        document.getElementById('loader').classList.add('hidden');
+        graphData = data;
+        
+        // Calculate node degrees for sizing
+        const nodeDegrees = {};
+        data.links.forEach(link => {
+          nodeDegrees[link.source] = (nodeDegrees[link.source] || 0) + 1;
+          nodeDegrees[link.target] = (nodeDegrees[link.target] || 0) + 1;
+        });
+
+        data.nodes.forEach(node => {
+          node.val = (nodeDegrees[node.id] || 0) + 1;
+        });
+
+        const Graph = ForceGraph()(document.getElementById('graph'))
+          .graphData(data)
+          .nodeId('id')
+          .nodeLabel('title')
+          .nodeColor(node => {
+            if (selectedNode && selectedNode.id === node.id) return '#ffffff';
+            return colorPalette[node.group % colorPalette.length];
+          })
+          .nodeRelSize(5)
+          .nodeVal('val')
+          .linkColor(() => 'rgba(255, 255, 255, 0.15)')
+          .linkDirectionalParticles(2)
+          .linkDirectionalParticleWidth(1.5)
+          .linkDirectionalParticleSpeed(d => 0.005)
+          .linkDirectionalArrowLength(4)
+          .linkDirectionalArrowRelPos(1)
+          .onNodeClick(node => {
+            selectedNode = node;
+            Graph.nodeColor(Graph.nodeColor()); // trigger redraw
+            
+            // Center camera on node
+            Graph.centerAt(node.x, node.y, 1000);
+            Graph.zoom(8, 2000);
+            
+            openSidebar(node);
+          })
+          .onBackgroundClick(() => {
+            selectedNode = null;
+            Graph.nodeColor(Graph.nodeColor());
+            closeSidebar();
+          });
+
+        // Adding glow effect
+        Graph.onRenderFramePost(ctx => {
+          ctx.shadowBlur = 15;
+          ctx.shadowColor = 'rgba(102, 252, 241, 0.4)';
+        });
+        
+        // Custom node rendering for selected state glow
+        Graph.nodeCanvasObject((node, ctx, globalScale) => {
+          const label = node.title;
+          const isSelected = selectedNode === node;
+          const fontSize = 12/globalScale;
+          
+          const r = Math.sqrt(node.val) * Graph.nodeRelSize();
+
+          // Draw Node
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, r, 0, 2 * Math.PI, false);
+          ctx.fillStyle = isSelected ? '#ffffff' : colorPalette[node.group % colorPalette.length];
+          
+          if (isSelected) {
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = '#ffffff';
+          } else {
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = ctx.fillStyle;
+          }
+          
+          ctx.fill();
+          
+          // Reset shadow for text
+          ctx.shadowBlur = 0;
+
+          // Draw Text
+          ctx.font = `${fontSize}px Inter, Sans-Serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillStyle = isSelected ? '#ffffff' : 'rgba(255, 255, 255, 0.8)';
+          ctx.fillText(label, node.x, node.y + r + fontSize);
+        });
+
+      })
+      .catch(err => {
+        document.getElementById('loader').innerText = 'Failed to load graph.json. Ensure it exists and served via HTTP.';
+        console.error(err);
+      });
+
+    function openSidebar(node) {
+      document.getElementById('side-title').innerText = node.title;
+      document.getElementById('side-id').innerText = node.id;
+      document.getElementById('side-group').innerText = node.group;
+      document.getElementById('side-degree').innerText = node.val - 1; // subtract base size
+
+      // Find relationships
+      const relContainer = document.getElementById('side-relations');
+      relContainer.innerHTML = '';
+      
+      const outgoing = graphData.links.filter(l => (l.source.id || l.source) === node.id);
+      const incoming = graphData.links.filter(l => (l.target.id || l.target) === node.id);
+
+      let foundRels = false;
+
+      outgoing.forEach(link => {
+        foundRels = true;
+        const targetId = link.target.id || link.target;
+        appendRelationCard('Outgoing ↗', link.type, targetId);
+      });
+
+      incoming.forEach(link => {
+        foundRels = true;
+        const sourceId = link.source.id || link.source;
+        appendRelationCard('Incoming ↙', link.type, sourceId);
+      });
+
+      if (!foundRels) {
+        relContainer.innerHTML = '<div style="color:#888; font-size:14px; font-style:italic;">No connections found.</div>';
+      }
+
+      sidebar.classList.add('active');
+    }
+
+    function appendRelationCard(direction, type, nodeId) {
+      const card = document.createElement('div');
+      card.className = 'relation-card';
+      card.innerHTML = `
+        <div class="relation-type">${direction} &bull; <span style="color:#c5c6c7">${type}</span></div>
+        <div class="relation-target">${nodeId}</div>
+      `;
+      document.getElementById('side-relations').appendChild(card);
+    }
+
+    function closeSidebar() {
+      sidebar.classList.remove('active');
+    }
+  </script>
+</body>
+</html>

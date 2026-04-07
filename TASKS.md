@@ -30,9 +30,9 @@ This checklist tracks the implementation of recommended features to enhance the 
 - [x] **Incremental Scanning**: Only parse changed files.
     - [x] Persist a `cache.json` with file `mtime` and hashes.
     - [x] Skip parsing for unchanged files to speed up large KBs.
-- [ ] **Web-based Graph Visualizer**: Interactive UI for the graph.
-    - [ ] Export a `graph.json` compatible with D3.js/Force-Graph.
-    - [ ] Create a simple HTML/JS dashboard to view the network.
+- [x] **Web-based Graph Visualizer**: Interactive UI for the graph.
+    - [x] Export a `graph.json` compatible with D3.js/Force-Graph.
+    - [x] Create a simple HTML/JS dashboard to view the network.
 - [ ] **Knowledge "Garbage Collection"**:
     - [ ] Identify and report "Orphan Notes" (no incoming/outgoing links).
     - [ ] Identify "Island Nodes" (small detached cliques).

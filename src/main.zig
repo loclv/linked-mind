@@ -24,8 +24,9 @@ pub fn main() !void {
             \\  {s} path <kb_dir> <start_node> <end_node>
             \\  {s} clusters <kb_dir>
             \\  {s} similar <kb_dir> <node_title>
+            \\  {s} visualize <kb_dir>
             \\
-        , .{ args[0], args[0], args[0], args[0], args[0] });
+        , .{ args[0], args[0], args[0], args[0], args[0], args[0] });
         return;
     }
 
@@ -198,6 +199,12 @@ pub fn main() !void {
                 std.debug.print("- {s} (Score: {d:.4})\n", .{ sim.node.title, sim.score });
             }
         }
+    } else if (std.mem.eql(u8, mode, "visualize")) {
+        const json_data = try kb_graph.exportGraphJSON();
+        defer allocator.free(json_data);
+        
+        try std.fs.cwd().writeFile(.{ .sub_path = "graph.json", .data = json_data });
+        std.debug.print("Graph data written to graph.json. Use a web server to view the dashboard.\n", .{});
     } else {
         var iter = kb_graph.nodes.iterator();
         while (iter.next()) |entry| {
