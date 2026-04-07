@@ -9,6 +9,8 @@ Instead of feeding an AI random files, Linked-Mind helps the LLM understand how 
 - Wikilink Extraction: Automatically identifies `[[Internal Links]]` between documents.
 - Tag System: Supports `#hashtags` to categorize knowledge nodes.
 - Link Resolution: Automatically maps human-readable wikilinks to absolute file paths.
+- Incremental Scanning: Blazing fast re-scans using `cache.json`, `mtime`, and SHA-256 (only parses changed files).
+- Web Visualizer: Export a interactive D3-powered Knowledge Graph dashboard to `graph.json` and view it in your browser.
 - LLM Export: Generates a single, structured `llm_knowledge.md` file designed for transformer-based LLMs to consume.
 
 ## 🛠 Usage
@@ -51,6 +53,11 @@ This creates `llm_knowledge.md` in the current directory.
   ```bash
   zig build run -- similar ./your_notes "Artificial Intelligence"
   ```
+- Interactive Web Visualization: Export your graph to JSON and view it in a sleek interactive web dashboard.
+  ```bash
+  zig build run -- visualize ./your_notes
+  ```
+  *(Then start a local server like `bunx serve .` and open the local address)*
 
 ## 🧠 Why Graph-based KB for LLMs?
 

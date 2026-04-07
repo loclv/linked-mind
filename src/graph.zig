@@ -384,14 +384,14 @@ pub const Graph = struct {
             const node = entry.value_ptr;
             const group = node_to_group.get(node) orelse 0;
 
-            try nodes_arr.append(.{
+            try nodes_arr.append(self.allocator, .{
                 .id = node.title,
                 .title = node.title,
                 .group = group,
             });
 
             for (node.links.items) |link| {
-                try links_arr.append(.{
+                try links_arr.append(self.allocator, .{
                     .source = node.title,
                     .target = link.target,
                     .type = link.nature orelse "link",
