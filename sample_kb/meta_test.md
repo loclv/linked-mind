@@ -1,0 +1,7 @@
+---
+status: critical
+priority: high
+date: 2026-04-07
+---
+# Metadata Test
+[[third.md]]

@@ -35,6 +35,14 @@ pub const Graph = struct {
         try context.writer(self.allocator).print("### Node: {s}\n", .{node.title});
         try context.writer(self.allocator).print("**Path:** {s}\n", .{node.path});
         
+        if (node.metadata.count() > 0) {
+            try context.writer(self.allocator).print("**Metadata:**\n", .{});
+            var meta_it = node.metadata.iterator();
+            while (meta_it.next()) |entry| {
+                try context.writer(self.allocator).print("- {s}: {s}\n", .{ entry.key_ptr.*, entry.value_ptr.* });
+            }
+        }
+
         if (node.tags.items.len > 0) {
             try context.writer(self.allocator).print("**Tags:** ", .{});
             for (node.tags.items, 0..) |tag, i| {

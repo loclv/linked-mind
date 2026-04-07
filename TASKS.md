@@ -6,9 +6,10 @@ This checklist tracks the implementation of recommended features to enhance the 
 - [x] **Backlinks Analysis**: Show nodes that link *to* the current node.
     - [x] Update `src/graph.zig` to track incoming edges.
     - [x] Include backlinks in `getContext` for LLM bundle.
-- [ ] **YAML Frontmatter Support**: Extract metadata from the start of Markdown files.
-    - [ ] Implement YAML-like parser (regex or simple state machine).
-    - [ ] Store metadata in `Node` struct.
+- [x] **YAML Frontmatter Support**: Extract metadata from the start of Markdown files.
+    - [x] Implement YAML-like parser (regex or simple state machine).
+    - [x] Store metadata in `Node` struct.
+    - [x] Include metadata in `getContext` for LLM bundle.
     - [ ] Allow filtering export by tags/status.
 - [ ] **Typed Links Support**: Specific relationships (e.g., `[[depends_on::Node]]`).
     - [ ] Extend `parser.zig` to detect `::` separator.
