@@ -52,19 +52,27 @@ pub const Graph = struct {
         }
 
         try context.writer(self.allocator).print("\n### Connections\n", .{});
-        for (node.links.items) |link_title| {
+        for (node.links.items) |link| {
             var found = false;
             var it = self.nodes.iterator();
             while (it.next()) |entry| {
                 const other = entry.value_ptr;
-                if (std.mem.indexOf(u8, other.title, link_title) != null) {
-                    try context.writer(self.allocator).print("- OUT: [[{s}]] (Found: {s})\n", .{link_title, other.path});
+                if (std.mem.indexOf(u8, other.title, link.target) != null) {
+                    if (link.nature) |nat| {
+                        try context.writer(self.allocator).print("- OUT ({s}): [[{s}]] (Found: {s})\n", .{nat, link.target, other.path});
+                    } else {
+                        try context.writer(self.allocator).print("- OUT: [[{s}]] (Found: {s})\n", .{link.target, other.path});
+                    }
                     found = true;
                     break;
                 }
             }
             if (!found) {
-                try context.writer(self.allocator).print("- OUT: [[{s}]] (Unresolved)\n", .{link_title});
+                if (link.nature) |nat| {
+                    try context.writer(self.allocator).print("- OUT ({s}): [[{s}]] (Unresolved)\n", .{nat, link.target});
+                } else {
+                    try context.writer(self.allocator).print("- OUT: [[{s}]] (Unresolved)\n", .{link.target});
+                }
             }
         }
 
@@ -78,16 +86,81 @@ pub const Graph = struct {
         return try context.toOwnedSlice(self.allocator);
     }
 
+    pub fn findNodeByTitle(self: *Graph, title: []const u8) ?*parser.Node {
+        var it = self.nodes.iterator();
+        while (it.next()) |entry| {
+            if (std.mem.indexOf(u8, entry.value_ptr.title, title) != null) {
+                return entry.value_ptr;
+            }
+        }
+        return null;
+    }
+
+    pub fn findShortestPath(self: *Graph, start_title: []const u8, end_title: []const u8) !?[]const []const u8 {
+        const start_node = self.findNodeByTitle(start_title) orelse return null;
+        const end_node = self.findNodeByTitle(end_title) orelse return null;
+
+        if (start_node == end_node) {
+            const result = try self.allocator.alloc([]const u8, 1);
+            result[0] = try self.allocator.dupe(u8, start_node.title);
+            return result;
+        }
+
+        var queue = std.ArrayListUnmanaged(*parser.Node){};
+        defer queue.deinit(self.allocator);
+
+        var parent_map = std.AutoHashMapUnmanaged(*parser.Node, *parser.Node){};
+        defer parent_map.deinit(self.allocator);
+
+        try queue.append(self.allocator, start_node);
+
+        var head: usize = 0;
+        var found = false;
+        while (head < queue.items.len) {
+            const current = queue.items[head];
+            head += 1;
+
+            if (current == end_node) {
+                found = true;
+                break;
+            }
+
+            for (current.links.items) |link| {
+                if (self.findNodeByTitle(link.target)) |neighbor| {
+                    if (!parent_map.contains(neighbor) and neighbor != start_node) {
+                        try parent_map.put(self.allocator, neighbor, current);
+                        try queue.append(self.allocator, neighbor);
+                    }
+                }
+            }
+        }
+
+        if (!found) return null;
+
+        var path = std.ArrayListUnmanaged([]const u8){};
+        var curr = end_node;
+        while (curr != start_node) {
+            try path.append(self.allocator, try self.allocator.dupe(u8, curr.title));
+            curr = parent_map.get(curr).?;
+        }
+        try path.append(self.allocator, try self.allocator.dupe(u8, start_node.title));
+
+        std.mem.reverse([]const u8, path.items);
+        return try path.toOwnedSlice(self.allocator);
+
+    }
+
     pub fn resolveBacklinks(self: *Graph) !void {
+
         var it = self.nodes.iterator();
         while (it.next()) |entry| {
             const source_node = entry.value_ptr;
 
-            for (source_node.links.items) |link_title| {
+            for (source_node.links.items) |link| {
                 var target_it = self.nodes.iterator();
                 while (target_it.next()) |target_entry| {
                     const target_node = target_entry.value_ptr;
-                    if (std.mem.indexOf(u8, target_node.title, link_title) != null) {
+                    if (std.mem.indexOf(u8, target_node.title, link.target) != null) {
                         const source_desc = try self.allocator.dupe(u8, source_node.title);
                         try target_node.backlinks.append(self.allocator, source_desc);
                         break;

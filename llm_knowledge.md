@@ -1,26 +1,19 @@
 # LLM Knowledge Bundle
-Generated on: 2026-04-06
+Generated on: 2026-04-07
+Filter Status: critical
 
 ---
-### Node: third.md
-**Path:** /Users/a0/w/linked-mind/sample_kb/third.md
-**Tags:** #advanced
+### Node: meta_test.md
+**Path:** sample_kb/meta_test.md
+**Metadata:**
+- status: critical
+- date: 2026-04-07
+- priority: high
 
 ### Connections
-- [[first.md]] (Found: /Users/a0/w/linked-mind/sample_kb/first.md)
+- OUT: [[third.md]] (Found: sample_kb/third.md)
 
----
-### Node: second.md
-**Path:** /Users/a0/w/linked-mind/sample_kb/second.md
-**Tags:** #linked
-
-### Connections
-
----
-### Node: first.md
-**Path:** /Users/a0/w/linked-mind/sample_kb/first.md
-**Tags:** #test-tag
-
-### Connections
-- [[Second Node]] (Unresolved)
+### Backlinks (Linked by)
+- IN: third.md
+- IN: typed_test.md
 
