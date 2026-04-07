@@ -16,30 +16,33 @@ pub fn main() !void {
     defer std.process.argsFree(allocator, args);
 
     if (args.len < 3) {
-        std.debug.print("Usage:\n", .{});
-        std.debug.print("  {s} scan <kb_dir>\n", .{args[0]});
-        std.debug.print("  {s} export <kb_dir> [--tag <tag>] [--status <status>]\n", .{args[0]});
-        std.debug.print("  {s} path <kb_dir> <start_node> <end_node>\n", .{args[0]});
+        std.debug.print(
+            \\Usage:
+            \\  {s} scan <kb_dir> [--tag <tag>] [--status <status>]
+            \\  {s} export <kb_dir> [--tag <tag>] [--status <status>]
+            \\  {s} path <kb_dir> <start_node> <end_node>
+            \\  {s} clusters <kb_dir>
+            \\  {s} similar <kb_dir> <node_title>
+            \\
+        , .{ args[0], args[0], args[0], args[0], args[0] });
         return;
     }
 
     const mode = args[1];
     const kb_dir_path = args[2];
     
-    // Simple command line parsing for flags
+    // Flag parsing (Global)
     var filter_tag: ?[]const u8 = null;
     var filter_status: ?[]const u8 = null;
     
-    if (std.mem.eql(u8, mode, "export")) {
-        var arg_i: usize = 3;
-        while (arg_i < args.len) : (arg_i += 1) {
-            if (std.mem.eql(u8, args[arg_i], "--tag") and arg_i + 1 < args.len) {
-                filter_tag = args[arg_i + 1];
-                arg_i += 1;
-            } else if (std.mem.eql(u8, args[arg_i], "--status") and arg_i + 1 < args.len) {
-                filter_status = args[arg_i + 1];
-                arg_i += 1;
-            }
+    var arg_i: usize = 3;
+    while (arg_i < args.len) : (arg_i += 1) {
+        if (std.mem.eql(u8, args[arg_i], "--tag") and arg_i + 1 < args.len) {
+            filter_tag = args[arg_i + 1];
+            arg_i += 1;
+        } else if (std.mem.eql(u8, args[arg_i], "--status") and arg_i + 1 < args.len) {
+            filter_status = args[arg_i + 1];
+            arg_i += 1;
         }
     }
 
@@ -100,7 +103,10 @@ pub fn main() !void {
         std.debug.print("Knowledge bundle written to llm_knowledge.md\n", .{});
     } else if (std.mem.eql(u8, mode, "path")) {
         if (args.len < 5) {
-            std.debug.print("Usage: {s} path <kb_dir> <start_node> <end_node>\n", .{args[0]});
+            std.debug.print(
+                \\Usage: {s} path <kb_dir> <start_node> <end_node>
+                \\
+            , .{args[0]});
             return;
         }
         const start = args[3];
@@ -117,9 +123,54 @@ pub fn main() !void {
         } else {
             std.debug.print("No path found between '{s}' and '{s}'.\n", .{start, end});
         }
+    } else if (std.mem.eql(u8, mode, "clusters")) {
+        const moc = try kb_graph.generateMOC();
+        defer allocator.free(moc);
+        
+        try std.fs.cwd().writeFile(.{ .sub_path = "MOC.md", .data = moc });
+        std.debug.print("Map of Content written to MOC.md\nClusters detected and grouped.\n", .{});
+    } else if (std.mem.eql(u8, mode, "similar")) {
+        if (args.len < 4) {
+            std.debug.print(
+                \\Usage: {s} similar <kb_dir> <node_title>
+                \\
+            , .{args[0]});
+            return;
+        }
+        const target = args[3];
+        const similarities = try kb_graph.findSimilarNodes(target, 5);
+        defer allocator.free(similarities);
+
+        if (similarities.len == 0) {
+            std.debug.print("No similar nodes found for '{s}'.\n", .{target});
+        } else {
+            std.debug.print("Nodes similar to '{s}':\n", .{target});
+            for (similarities) |sim| {
+                std.debug.print("- {s} (Score: {d:.4})\n", .{ sim.node.title, sim.score });
+            }
+        }
     } else {
         var iter = kb_graph.nodes.iterator();
         while (iter.next()) |entry| {
+            const node = entry.value_ptr;
+            
+            // Check filters
+            if (filter_tag) |t| {
+                var found_tag = false;
+                for (node.tags.items) |tag| {
+                    if (std.mem.eql(u8, tag, t)) {
+                        found_tag = true;
+                        break;
+                    }
+                }
+                if (!found_tag) continue;
+            }
+            
+            if (filter_status) |s| {
+                const status = node.metadata.get("status") orelse "";
+                if (!std.mem.eql(u8, status, s)) continue;
+            }
+
             const ctx = try kb_graph.getContext(entry.key_ptr.*);
             defer allocator.free(ctx);
             std.debug.print("\n--- Knowledge Item ---\n{s}\n", .{ctx});

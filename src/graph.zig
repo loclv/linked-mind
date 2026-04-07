@@ -169,4 +169,174 @@ pub const Graph = struct {
             }
         }
     }
+
+    pub const Cluster = struct {
+        nodes: std.ArrayListUnmanaged(*parser.Node),
+
+        pub fn deinit(self: *Cluster, allocator: std.mem.Allocator) void {
+            self.nodes.deinit(allocator);
+        }
+    };
+
+    pub const ScoreResult = struct { node: *parser.Node, score: f32 };
+
+    pub fn detectClusters(self: *Graph) ![]Cluster {
+        var visited = std.AutoHashMap(*parser.Node, void).init(self.allocator);
+        defer visited.deinit();
+
+        var clusters = std.ArrayListUnmanaged(Cluster){};
+        defer clusters.deinit(self.allocator);
+
+        var node_it = self.nodes.iterator();
+        while (node_it.next()) |entry| {
+            const start_node = entry.value_ptr;
+            if (visited.contains(start_node)) continue;
+
+            var cluster = Cluster{ .nodes = .{} };
+            var queue = std.ArrayListUnmanaged(*parser.Node){};
+            defer queue.deinit(self.allocator);
+
+            try queue.append(self.allocator, start_node);
+            try visited.put(start_node, {});
+            try cluster.nodes.append(self.allocator, start_node);
+
+            var head: usize = 0;
+            while (head < queue.items.len) {
+                const current = queue.items[head];
+                head += 1;
+
+                // Outgoing links
+                for (current.links.items) |link| {
+                    if (self.findNodeByTitle(link.target)) |neighbor| {
+                        if (!visited.contains(neighbor)) {
+                            try visited.put(neighbor, {});
+                            try queue.append(self.allocator, neighbor);
+                            try cluster.nodes.append(self.allocator, neighbor);
+                        }
+                    }
+                }
+
+                // Incoming links (backlinks)
+                for (current.backlinks.items) |btitle| {
+                    if (self.findNodeByTitle(btitle)) |neighbor| {
+                        if (!visited.contains(neighbor)) {
+                            try visited.put(neighbor, {});
+                            try queue.append(self.allocator, neighbor);
+                            try cluster.nodes.append(self.allocator, neighbor);
+                        }
+                    }
+                }
+            }
+            try clusters.append(self.allocator, cluster);
+        }
+
+        return try clusters.toOwnedSlice(self.allocator);
+    }
+
+    pub fn generateMOC(self: *Graph) ![]const u8 {
+        const clusters = try self.detectClusters();
+        defer {
+            for (clusters) |*c| c.deinit(self.allocator);
+            self.allocator.free(clusters);
+        }
+
+        var moc = std.ArrayListUnmanaged(u8){};
+        defer moc.deinit(self.allocator);
+
+        try moc.writer(self.allocator).print("# Map of Content (MOC)\n", .{});
+        try moc.writer(self.allocator).print("Generated on: 2026-04-07\n\n", .{});
+
+        for (clusters, 0..) |cluster, i| {
+            try moc.writer(self.allocator).print("## Cluster {d}\n", .{i + 1});
+            for (cluster.nodes.items) |node| {
+                try moc.writer(self.allocator).print("- [[{s}]] ({s})\n", .{ node.title, node.path });
+            }
+            try moc.writer(self.allocator).print("\n", .{});
+        }
+
+        return try moc.toOwnedSlice(self.allocator);
+    }
+
+    pub fn findSimilarNodes(self: *Graph, target_title: []const u8, limit: usize) ![]ScoreResult {
+        const target_node = self.findNodeByTitle(target_title) orelse return error.NodeNotFound;
+
+        var scores = std.ArrayListUnmanaged(ScoreResult){};
+        defer scores.deinit(self.allocator);
+
+        var node_it = self.nodes.iterator();
+        while (node_it.next()) |entry| {
+            const other_node = entry.value_ptr;
+            if (other_node == target_node) continue;
+
+            const score = try self.computeJaccard(target_node.content, other_node.content);
+            if (score > 0) {
+                try scores.append(self.allocator, .{ .node = other_node, .score = score });
+            }
+        }
+
+        // Sort by score DESC
+        const Sorter = struct {
+            pub fn lessThan(_: void, lhs: ScoreResult, rhs: ScoreResult) bool {
+                return lhs.score > rhs.score;
+            }
+        };
+        std.mem.sort(ScoreResult, scores.items, {}, Sorter.lessThan);
+
+        const real_limit = if (scores.items.len < limit) scores.items.len else limit;
+        return try self.allocator.dupe(ScoreResult, scores.items[0..real_limit]);
+    }
+
+    fn computeJaccard(self: *Graph, content1: []const u8, content2: []const u8) !f32 {
+        var set1 = std.StringHashMap(void).init(self.allocator);
+        defer {
+            var it = set1.keyIterator();
+            while (it.next()) |key| self.allocator.free(key.*);
+            set1.deinit();
+        }
+        var set2 = std.StringHashMap(void).init(self.allocator);
+        defer {
+            var it = set2.keyIterator();
+            while (it.next()) |key| self.allocator.free(key.*);
+            set2.deinit();
+        }
+
+        var words1 = std.mem.tokenizeAny(u8, content1, " \n\r\t.,!?;:()[]{}");
+        while (words1.next()) |word| {
+            if (word.len > 3) {
+                const lower = try self.allocator.alloc(u8, word.len);
+                for (word, 0..) |c, i| lower[i] = std.ascii.toLower(c);
+                if (set1.contains(lower)) {
+                    self.allocator.free(lower);
+                } else {
+                    try set1.put(lower, {});
+                }
+            }
+        }
+
+        var words2 = std.mem.tokenizeAny(u8, content2, " \n\r\t.,!?;:()[]{}");
+        while (words2.next()) |word| {
+            if (word.len > 3) {
+                const lower = try self.allocator.alloc(u8, word.len);
+                for (word, 0..) |c, i| lower[i] = std.ascii.toLower(c);
+                if (set2.contains(lower)) {
+                    self.allocator.free(lower);
+                } else {
+                    try set2.put(lower, {});
+                }
+            }
+        }
+
+        if (set1.count() == 0 or set2.count() == 0) return 0.0;
+
+        var intersection: usize = 0;
+        var it1 = set1.keyIterator();
+        while (it1.next()) |key| {
+            if (set2.contains(key.*)) {
+                intersection += 1;
+            }
+        }
+
+        const union_size = set1.count() + set2.count() - intersection;
+        return @as(f32, @floatFromInt(intersection)) / @as(f32, @floatFromInt(union_size));
+    }
 };

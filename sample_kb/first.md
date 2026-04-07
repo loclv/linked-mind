@@ -1,1 +1,1 @@
-Hello #test-tag [[Second Node]]
+This is the first note about Zig and knowledge bases. Zig is fast.

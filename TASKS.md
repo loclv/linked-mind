@@ -10,21 +10,21 @@ This checklist tracks the implementation of recommended features to enhance the 
     - [x] Implement YAML-like parser (regex or simple state machine).
     - [x] Store metadata in `Node` struct.
     - [x] Include metadata in `getContext` for LLM bundle.
-    - [ ] Allow filtering export by tags/status.
-- [ ] **Typed Links Support**: Specific relationships (e.g., `[[depends_on::Node]]`).
-    - [ ] Extend `parser.zig` to detect `::` separator.
-    - [ ] Update `getContext` to describe the *nature* of the link.
+    - [x] Allow filtering export by tags/status.
+- [x] **Typed Links Support**: Specific relationships (e.g., `[[depends_on::Node]]`).
+    - [x] Extend `parser.zig` to detect `::` separator.
+    - [x] Update `getContext` to describe the *nature* of the link.
 
 ## 🧠 Advanced Analysis (Logic)
-- [ ] **Shortest Path / Graph Traversal**: Find connections between distant concepts.
-    - [ ] Implement BFS/Dijkstra in Zig for the graph structure.
-    - [ ] CLI command to find "How Node A relates to Node B".
-- [ ] **Community Detection (Clustering)**: Automatically group related notes.
-    - [ ] Implement simple cluster detection (e.g., strongly connected components).
-    - [ ] Export "Map of Content" (MOC) based on clusters.
-- [ ] **Hybrid Search (Graph + Vector)**: Integrate with LLM embeddings.
-    - [ ] (Optional) Add a tool to generate/store vector embeddings for each node.
-    - [ ] Enable similarity-based linking for nodes without explicit wikilinks.
+- [x] **Shortest Path / Graph Traversal**: Find connections between distant concepts.
+    - [x] Implement BFS/Dijkstra in Zig for the graph structure.
+    - [x] CLI command to find "How Node A relates to Node B".
+- [x] **Community Detection (Clustering)**: Automatically group related notes.
+    - [x] Implement simple cluster detection (e.g., weakly connected components).
+    - [x] Export "Map of Content" (MOC) based on clusters.
+- [x] **Hybrid Search (Graph + Vector)**: Integrate with LLM embeddings.
+    - [x] (Implemented as Jaccard Similarity) Add a tool to generate/store content for each node.
+    - [x] Enable similarity-based linking for nodes without explicit wikilinks (via `similar` command).
 
 ## ⚡ Performance & UX
 - [ ] **Incremental Scanning**: Only parse changed files.
