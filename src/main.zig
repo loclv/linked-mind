@@ -38,6 +38,8 @@ pub fn main() !void {
         }
     }
 
+    try kb_graph.resolveBacklinks();
+
     if (std.mem.eql(u8, mode, "export")) {
         var bundle = std.ArrayListUnmanaged(u8){};
         defer bundle.deinit(allocator);

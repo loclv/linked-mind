@@ -4,14 +4,17 @@ pub const Node = struct {
     path: []const u8,
     title: []const u8,
     links: std.ArrayListUnmanaged([]const u8),
+    backlinks: std.ArrayListUnmanaged([]const u8),
     tags: std.ArrayListUnmanaged([]const u8),
 
     pub fn deinit(self: *Node, allocator: std.mem.Allocator) void {
         allocator.free(self.path);
         allocator.free(self.title);
         for (self.links.items) |link| allocator.free(link);
+        for (self.backlinks.items) |blink| allocator.free(blink);
         for (self.tags.items) |tag| allocator.free(tag);
         self.links.deinit(allocator);
+        self.backlinks.deinit(allocator);
         self.tags.deinit(allocator);
     }
 };
@@ -34,6 +37,7 @@ pub const Parser = struct {
             .path = try self.allocator.dupe(u8, path),
             .title = try self.allocator.dupe(u8, std.fs.path.basename(path)),
             .links = .{},
+            .backlinks = .{},
             .tags = .{},
         };
 
