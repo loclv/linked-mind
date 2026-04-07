@@ -3,8 +3,8 @@ const std = @import("std");
 pub const Node = struct {
     path: []const u8,
     title: []const u8,
-    links: std.ArrayList([]const u8),
-    tags: std.ArrayList([]const u8),
+    links: std.ArrayListUnmanaged([]const u8),
+    tags: std.ArrayListUnmanaged([]const u8),
 
     pub fn deinit(self: *Node, allocator: std.mem.Allocator) void {
         allocator.free(self.path);
@@ -33,20 +33,20 @@ pub const Parser = struct {
         var node = Node{
             .path = try self.allocator.dupe(u8, path),
             .title = try self.allocator.dupe(u8, std.fs.path.basename(path)),
-            .links = std.ArrayList([]const u8).init(self.allocator),
-            .tags = std.ArrayList([]const u8).init(self.allocator),
+            .links = .{},
+            .tags = .{},
         };
 
         // Simple Wikilink extraction: [[link]]
         var i: usize = 0;
-        while (i < content.len - 4) : (i += 1) {
-            if (std.mem.eql(u8, content[i..i+2], "[[")) {
+        while (i < content.len) : (i += 1) {
+            if (i + 2 < content.len and std.mem.eql(u8, content[i..i+2], "[[")) {
                 const start = i + 2;
                 var end = start;
-                while (end < content.len - 2 and !std.mem.eql(u8, content[end..end+2], "]]")) : (end += 1) {}
-                if (end < content.len - 1 and std.mem.eql(u8, content[end..end+2], "]]")) {
+                while (end < content.len and !(end + 2 <= content.len and std.mem.eql(u8, content[end..end+2], "]]"))) : (end += 1) {}
+                if (end + 2 <= content.len and std.mem.eql(u8, content[end..end+2], "]]")) {
                     const link = try self.allocator.dupe(u8, content[start..end]);
-                    try node.links.append(link);
+                    try node.links.append(self.allocator, link);
                     i = end + 1;
                 }
             } else if (content[i] == '#') {
@@ -56,7 +56,7 @@ pub const Parser = struct {
                 while (end < content.len and !std.ascii.isWhitespace(content[end]) and content[end] != '.' and content[end] != ',') : (end += 1) {}
                 if (end > start) {
                     const tag = try self.allocator.dupe(u8, content[start..end]);
-                    try node.tags.append(tag);
+                    try node.tags.append(self.allocator, tag);
                     i = end;
                 }
             }

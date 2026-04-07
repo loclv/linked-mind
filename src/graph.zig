@@ -15,6 +15,7 @@ pub const Graph = struct {
     pub fn deinit(self: *Graph) void {
         var iter = self.nodes.iterator();
         while (iter.next()) |entry| {
+            self.allocator.free(entry.key_ptr.*);
             var node = entry.value_ptr;
             node.deinit(self.allocator);
         }
@@ -28,20 +29,38 @@ pub const Graph = struct {
 
     pub fn getContext(self: *Graph, path: []const u8) ![]const u8 {
         const node = self.nodes.get(path) orelse return error.NodeNotFound;
-        var context = std.ArrayList(u8).init(self.allocator);
-        defer context.deinit();
+        var context = std.ArrayListUnmanaged(u8){};
+        defer context.deinit(self.allocator);
 
-        try context.writer().print("Knowledge Node: {s}\n", .{node.title});
-        try context.writer().print("Tags: ", .{});
-        for (node.tags.items, 0..) |tag, i| {
-            try context.writer().print("{s}{s}", .{tag, if (i == node.tags.items.len - 1) "" else ", "});
-        }
-        try context.writer().print("\nRelated Connections:\n", .{});
+        try context.writer(self.allocator).print("### Node: {s}\n", .{node.title});
+        try context.writer(self.allocator).print("**Path:** {s}\n", .{node.path});
         
-        for (node.links.items) |link| {
-            try context.writer().print("- {s}\n", .{link});
+        if (node.tags.items.len > 0) {
+            try context.writer(self.allocator).print("**Tags:** ", .{});
+            for (node.tags.items, 0..) |tag, i| {
+                try context.writer(self.allocator).print("#{s}{s}", .{tag, if (i == node.tags.items.len - 1) "" else ", "});
+            }
+            try context.writer(self.allocator).print("\n", .{});
         }
 
-        return try context.toOwnedSlice();
+        try context.writer(self.allocator).print("\n### Connections\n", .{});
+        for (node.links.items) |link_title| {
+            // Try to find if this link_title exists as a filename/title in our graph
+            var found = false;
+            var it = self.nodes.iterator();
+            while (it.next()) |entry| {
+                const other = entry.value_ptr;
+                if (std.mem.indexOf(u8, other.title, link_title) != null) {
+                    try context.writer(self.allocator).print("- [[{s}]] (Found: {s})\n", .{link_title, other.path});
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                try context.writer(self.allocator).print("- [[{s}]] (Unresolved)\n", .{link_title});
+            }
+        }
+
+        return try context.toOwnedSlice(self.allocator);
     }
 };
