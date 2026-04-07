@@ -1,6 +1,7 @@
 const std = @import("std");
 const parser = @import("parser.zig");
 const graph = @import("graph.zig");
+const cache = @import("cache.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -49,6 +50,15 @@ pub fn main() !void {
     var kb_dir = try std.fs.cwd().openDir(kb_dir_path, .{ .iterate = true });
     defer kb_dir.close();
 
+    var kb_cache = cache.Cache.init(allocator);
+    defer kb_cache.deinit();
+    kb_cache.load("cache.json") catch |err| {
+        std.debug.print("Note: Could not load cache.json: {any}. Starting fresh.\n", .{err});
+    };
+
+    var new_cache = cache.Cache.init(allocator);
+    defer new_cache.deinit();
+
     var walker = try kb_dir.walk(allocator);
     defer walker.deinit();
 
@@ -57,10 +67,49 @@ pub fn main() !void {
             const absolute_path = try std.fs.path.join(allocator, &[_][]const u8{ kb_dir_path, entry.path });
             defer allocator.free(absolute_path);
 
-            const node = try kb_parser.parseFile(absolute_path);
-            try kb_graph.addNode(node);
+            const stat = try kb_dir.statFile(entry.path);
+            const mtime = stat.mtime;
+
+            var cached_entry: ?*cache.CacheEntry = null;
+            if (kb_cache.entries.getPtr(absolute_path)) |cached| {
+                if (cached.mtime == mtime) {
+                    cached_entry = cached;
+                } else {
+                    const hash = try calculateHash(absolute_path);
+                    if (std.mem.eql(u8, &hash, &cached.hash)) {
+                        cached_entry = cached;
+                        // Still update mtime so we skip hashing next time
+                        cached_entry.?.*.mtime = mtime;
+                    }
+                }
+            }
+
+            if (cached_entry) |ce| {
+                try kb_graph.addNode(try ce.node.clone(allocator));
+                // Add to new cache
+                const new_node_copy = try ce.node.clone(allocator);
+                try new_cache.entries.put(try allocator.dupe(u8, absolute_path), .{
+                    .mtime = ce.mtime,
+                    .hash = ce.hash,
+                    .node = new_node_copy,
+                });
+            } else {
+                const node = try kb_parser.parseFile(absolute_path);
+                const hash = try calculateHash(absolute_path);
+                
+                // Add a clone to the graph because new_cache will own the 'node' struct
+                try kb_graph.addNode(try node.clone(allocator));
+                
+                try new_cache.entries.put(try allocator.dupe(u8, absolute_path), .{
+                    .mtime = mtime,
+                    .hash = hash,
+                    .node = node, // ownership transferred to new_cache
+                });
+            }
         }
     }
+
+    try new_cache.save("cache.json");
 
     try kb_graph.resolveBacklinks();
 
@@ -176,5 +225,19 @@ pub fn main() !void {
             std.debug.print("\n--- Knowledge Item ---\n{s}\n", .{ctx});
         }
     }
+}
+
+fn calculateHash(path: []const u8) ![32]u8 {
+    const file = try std.fs.cwd().openFile(path, .{});
+    defer file.close();
+
+    var hash = std.crypto.hash.sha2.Sha256.init(.{});
+    var buffer: [8192]u8 = undefined;
+    while (true) {
+        const bytes_read = try file.read(&buffer);
+        if (bytes_read == 0) break;
+        hash.update(buffer[0..bytes_read]);
+    }
+    return hash.finalResult();
 }
 

@@ -14,6 +14,43 @@ pub const Node = struct {
     tags: std.ArrayListUnmanaged([]const u8),
     metadata: std.StringHashMapUnmanaged([]const u8),
 
+    pub fn clone(self: Node, allocator: std.mem.Allocator) !Node {
+        var new_node = Node{
+            .path = try allocator.dupe(u8, self.path),
+            .title = try allocator.dupe(u8, self.title),
+            .content = try allocator.dupe(u8, self.content),
+            .links = try self.links.clone(allocator),
+            .backlinks = try self.backlinks.clone(allocator),
+            .tags = try self.tags.clone(allocator),
+            .metadata = .{},
+        };
+        errdefer new_node.deinit(allocator);
+
+        // Deep clone links
+        for (new_node.links.items) |*link| {
+            link.target = try allocator.dupe(u8, link.target);
+            if (link.nature) |nat| link.nature = try allocator.dupe(u8, nat);
+        }
+
+        // Deep clone backlinks
+        for (new_node.backlinks.items) |*blink| {
+            blink.* = try allocator.dupe(u8, blink.*);
+        }
+
+        // Deep clone tags
+        for (new_node.tags.items) |*tag| {
+            tag.* = try allocator.dupe(u8, tag.*);
+        }
+
+        // Deep clone metadata
+        var meta_it = self.metadata.iterator();
+        while (meta_it.next()) |entry| {
+            try new_node.metadata.put(allocator, try allocator.dupe(u8, entry.key_ptr.*), try allocator.dupe(u8, entry.value_ptr.*));
+        }
+
+        return new_node;
+    }
+
     pub fn deinit(self: *Node, allocator: std.mem.Allocator) void {
         allocator.free(self.path);
         allocator.free(self.title);
