@@ -1,0 +1,11 @@
+.{
+    .paths = .{
+        "build.zig",
+        "apps",
+        "libs",
+    },
+    .rules = .{
+        .Z006 = .{ .enabled = false },
+        .Z024 = .{ .max_length = 1000 },
+    },
+}
