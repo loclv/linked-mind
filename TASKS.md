@@ -33,9 +33,9 @@ This checklist tracks the implementation of recommended features to enhance the 
 - [x] **Web-based Graph Visualizer**: Interactive UI for the graph.
     - [x] Export a `graph.json` compatible with D3.js/Force-Graph.
     - [x] Create a simple HTML/JS dashboard to view the network.
-- [ ] **Knowledge "Garbage Collection"**:
-    - [ ] Identify and report "Orphan Notes" (no incoming/outgoing links).
-    - [ ] Identify "Island Nodes" (small detached cliques).
+- [x] **Knowledge "Garbage Collection"**:
+    - [x] Identify and report "Orphan Notes" (no incoming/outgoing links).
+    - [x] Identify "Island Nodes" (small detached cliques).
 
 ## ✅ Completed Tasks
 - [x] Initial Zig implementation (v0.15.2).
