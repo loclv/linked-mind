@@ -23,10 +23,11 @@ pub fn main() !void {
             \\  {s} export <kb_dir> [--tag <tag>] [--status <status>]
             \\  {s} path <kb_dir> <start_node> <end_node>
             \\  {s} clusters <kb_dir>
+            \\  {s} gc <kb_dir> [--threshold <n>]
             \\  {s} similar <kb_dir> <node_title>
             \\  {s} visualize <kb_dir>
             \\
-        , .{ args[0], args[0], args[0], args[0], args[0], args[0] });
+        , .{ args[0], args[0], args[0], args[0], args[0], args[0], args[0] });
         return;
     }
 
@@ -179,6 +180,41 @@ pub fn main() !void {
         
         try std.fs.cwd().writeFile(.{ .sub_path = "MOC.md", .data = moc });
         std.debug.print("Map of Content written to MOC.md\nClusters detected and grouped.\n", .{});
+    } else if (std.mem.eql(u8, mode, "gc")) {
+        var threshold: usize = 3;
+        var arg_j: usize = 3;
+        while (arg_j < args.len) : (arg_j += 1) {
+            if (std.mem.eql(u8, args[arg_j], "--threshold") and arg_j + 1 < args.len) {
+                threshold = try std.fmt.parseInt(usize, args[arg_j + 1], 10);
+                arg_j += 1;
+            }
+        }
+
+        var report = try kb_graph.getGCReport(threshold);
+        defer report.deinit(allocator);
+
+        std.debug.print("# Knowledge Garbage Collection Report\n\n", .{});
+        
+        std.debug.print("## Orphan Notes ({d})\n", .{report.orphans.items.len});
+        if (report.orphans.items.len == 0) {
+            std.debug.print("No orphan notes found.\n", .{});
+        } else {
+            for (report.orphans.items) |node| {
+                std.debug.print("- [[{s}]] ({s})\n", .{node.title, node.path});
+            }
+        }
+
+        std.debug.print("\n## Island Nodes (Small Detached Cliques, size <= {d})\n", .{threshold});
+        if (report.islands.items.len == 0) {
+            std.debug.print("No island nodes found.\n", .{});
+        } else {
+            for (report.islands.items, 0..) |cluster, i| {
+                std.debug.print("Island {d} (Size: {d}):\n", .{i + 1, cluster.nodes.items.len});
+                for (cluster.nodes.items) |node| {
+                    std.debug.print("  - [[{s}]] ({s})\n", .{node.title, node.path});
+                }
+            }
+        }
     } else if (std.mem.eql(u8, mode, "similar")) {
         if (args.len < 4) {
             std.debug.print(

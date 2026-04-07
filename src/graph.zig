@@ -415,4 +415,41 @@ pub const Graph = struct {
 
         return try writer.toOwnedSlice();
     }
+
+    pub const GCReport = struct {
+        orphans: std.ArrayListUnmanaged(*parser.Node),
+        islands: std.ArrayListUnmanaged(Cluster),
+
+        pub fn deinit(self: *GCReport, allocator: std.mem.Allocator) void {
+            self.orphans.deinit(allocator);
+            for (self.islands.items) |*c| c.deinit(allocator);
+            self.islands.deinit(allocator);
+        }
+    };
+
+    pub fn getGCReport(self: *Graph, island_threshold: usize) !GCReport {
+        const clusters = try self.detectClusters();
+        defer self.allocator.free(clusters);
+
+        var report: GCReport = .{
+            .orphans = .{},
+            .islands = .{},
+        };
+
+        for (clusters) |cluster| {
+            if (cluster.nodes.items.len == 1) {
+                try report.orphans.append(self.allocator, cluster.nodes.items[0]);
+                // Free the cluster's list since we only took the node
+                var mutable_cluster = cluster;
+                mutable_cluster.deinit(self.allocator);
+            } else if (cluster.nodes.items.len <= island_threshold) {
+                try report.islands.append(self.allocator, cluster);
+            } else {
+                var mutable_cluster = cluster;
+                mutable_cluster.deinit(self.allocator);
+            }
+        }
+
+        return report;
+    }
 };
