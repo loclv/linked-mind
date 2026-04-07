@@ -1,0 +1,16 @@
+{
+    "[markdown]": {
+        "editor.wordWrap": "on"
+    },
+    "makefile.configureOnOpen": false,
+    "cSpell.words": [
+        "deinit",
+        "deiniting",
+        "Doptimize",
+        "Dtarget",
+        "Embedder",
+        "getenv",
+        "zigdoc",
+        "ziglint"
+    ]
+}
