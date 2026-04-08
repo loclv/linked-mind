@@ -45,13 +45,17 @@ This creates `llm_knowledge.md` in the current directory.
   ```bash
   zig build run -- path ./your_notes "Quantum Computing" "Shor's Algorithm"
   ```
-- Community Detection: Generate a "Map of Content" (MOC) based on automatically detected clusters.
+- Community Detection: Generate a "Map of Content" (MOC) using Louvain modularity-based clustering.
   ```bash
   zig build run -- clusters ./your_notes
   ```
 - Similarity Search: Find nodes related to a specific topic (even without explicit links).
   ```bash
   zig build run -- similar ./your_notes "Artificial Intelligence"
+  ```
+- Link Suggestion: Discover missing connections between content-similar notes.
+  ```bash
+  zig build run -- suggest ./your_notes --threshold 0.1
   ```
 - Interactive Web Visualization: Export your graph to JSON and view it in a sleek interactive web dashboard.
   ```bash

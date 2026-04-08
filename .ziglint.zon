@@ -1,8 +1,7 @@
 .{
     .paths = .{
         "build.zig",
-        "apps",
-        "libs",
+        "src",
     },
     .rules = .{
         .Z006 = .{ .enabled = false },

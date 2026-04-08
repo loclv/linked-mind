@@ -1,4 +1,5 @@
 const std = @import("std");
+
 const parser = @import("parser.zig");
 
 pub const CacheEntry = struct {
@@ -26,6 +27,7 @@ pub const Cache = struct {
             cache_entry.node.deinit(self.allocator);
         }
         self.entries.deinit();
+        self.* = undefined;
     }
 
     pub fn load(self: *Cache, path: []const u8) !void {
@@ -56,7 +58,7 @@ pub const Cache = struct {
 
             const mtime = if (file_data.object.get("mtime")) |m| m.integer else 0;
             const hash_hex = if (file_data.object.get("hash")) |h| h.string else "";
-            
+
             var hash: [32]u8 = undefined;
             if (hash_hex.len == 64) {
                 _ = try std.fmt.hexToBytes(&hash, hash_hex);
@@ -68,7 +70,7 @@ pub const Cache = struct {
             if (node_val != .object) continue;
 
             const node = try self.parseNode(node_val.object, file_path);
-            
+
             try self.entries.put(try self.allocator.dupe(u8, file_path), .{
                 .mtime = mtime,
                 .hash = hash,
@@ -104,7 +106,7 @@ pub const Cache = struct {
                     if (link == .object) {
                         const target = if (link.object.get("target")) |t| t.string else "";
                         const nature = if (link.object.get("nature")) |n| (if (n == .string) n.string else null) else null;
-                        
+
                         try node.links.append(self.allocator, .{
                             .target = try self.allocator.dupe(u8, target),
                             .nature = if (nature) |nat| try self.allocator.dupe(u8, nat) else null,
@@ -119,10 +121,7 @@ pub const Cache = struct {
                 var it = meta_val.object.iterator();
                 while (it.next()) |entry| {
                     if (entry.value_ptr.* == .string) {
-                        try node.metadata.put(self.allocator, 
-                            try self.allocator.dupe(u8, entry.key_ptr.*), 
-                            try self.allocator.dupe(u8, entry.value_ptr.*.string)
-                        );
+                        try node.metadata.put(self.allocator, try self.allocator.dupe(u8, entry.key_ptr.*), try self.allocator.dupe(u8, entry.value_ptr.*.string));
                     }
                 }
             }
@@ -166,7 +165,7 @@ pub const Cache = struct {
         try writer.print("{f}, ", .{std.json.fmt(node.title, .{})});
         try writer.writeAll("\"content\": ");
         try writer.print("{f}, ", .{std.json.fmt(node.content, .{})});
-        
+
         try writer.writeAll("\"tags\": [");
         for (node.tags.items, 0..) |tag, i| {
             if (i > 0) try writer.writeAll(",");

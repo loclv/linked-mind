@@ -25,9 +25,10 @@ pub fn main() !void {
             \\  {s} clusters <kb_dir>
             \\  {s} gc <kb_dir> [--threshold <n>]
             \\  {s} similar <kb_dir> <node_title>
+            \\  {s} suggest <kb_dir> [--threshold <0.1>]
             \\  {s} visualize <kb_dir>
             \\
-        , .{ args[0], args[0], args[0], args[0], args[0], args[0], args[0] });
+        , .{ args[0], args[0], args[0], args[0], args[0], args[0], args[0], args[0] });
         return;
     }
 
@@ -114,6 +115,8 @@ pub fn main() !void {
     try new_cache.save("cache.json");
 
     try kb_graph.resolveBacklinks();
+    var pr_scores = try kb_graph.computePageRank(10);
+    defer pr_scores.deinit();
 
     if (std.mem.eql(u8, mode, "export")) {
         var bundle = std.ArrayListUnmanaged(u8){};
@@ -147,6 +150,9 @@ pub fn main() !void {
 
             const ctx = try kb_graph.getContext(entry.key_ptr.*);
             defer allocator.free(ctx);
+            
+            const rank = pr_scores.get(node.title) orelse 0.0;
+            try bundle.writer(allocator).print("**PageRank:** {d:.4}\n", .{rank});
             try bundle.writer(allocator).print("---\n{s}\n", .{ctx});
         }
         
@@ -235,6 +241,28 @@ pub fn main() !void {
                 std.debug.print("- {s} (Score: {d:.4})\n", .{ sim.node.title, sim.score });
             }
         }
+    } else if (std.mem.eql(u8, mode, "suggest")) {
+        // Link suggestion: find content-similar but unlinked node pairs
+        var suggest_threshold: f32 = 0.1;
+        var arg_j: usize = 3;
+        while (arg_j < args.len) : (arg_j += 1) {
+            if (std.mem.eql(u8, args[arg_j], "--threshold") and arg_j + 1 < args.len) {
+                suggest_threshold = try std.fmt.parseFloat(f32, args[arg_j + 1]);
+                arg_j += 1;
+            }
+        }
+
+        const suggestions = try kb_graph.suggestLinks(suggest_threshold, 10);
+        defer allocator.free(suggestions);
+
+        if (suggestions.len == 0) {
+            std.debug.print("No link suggestions found (threshold: {d:.2}).\n", .{suggest_threshold});
+        } else {
+            std.debug.print("# Suggested Links (threshold >= {d:.2})\n\n", .{suggest_threshold});
+            for (suggestions) |s| {
+                std.debug.print("- [[{s}]] <-> [[{s}]] (Similarity: {d:.4})\n", .{ s.source.title, s.target.title, s.score });
+            }
+        }
     } else if (std.mem.eql(u8, mode, "visualize")) {
         const json_data = try kb_graph.exportGraphJSON();
         defer allocator.free(json_data);
@@ -265,7 +293,8 @@ pub fn main() !void {
 
             const ctx = try kb_graph.getContext(entry.key_ptr.*);
             defer allocator.free(ctx);
-            std.debug.print("\n--- Knowledge Item ---\n{s}\n", .{ctx});
+            const rank = pr_scores.get(node.title) orelse 0.0;
+            std.debug.print("\n--- Knowledge Item (Rank: {d:.4}) ---\n{s}\n", .{ rank, ctx });
         }
     }
 }

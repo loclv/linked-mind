@@ -46,3 +46,15 @@ This checklist tracks the implementation of recommended features to enhance the 
 - [x] Recursive Directory Scanning.
 - [x] Memory Leak Prevention (GPA clean shutdown).
 - [x] Documentation (`README`, `ARCHITECTURE`, `LLM_STRATEGY`).
+
+## 🚀 Phase 2: Advanced Intelligence (COMPLETED)
+- [x] **Technical Optimization**:
+    - [x] Implement O(N) Link Resolution using title map.
+    - [x] Optimize Jaccard Similarity with pre-computed word sets.
+- [x] **Advanced Graph Logic**:
+    - [x] PageRank Centrality: Identify core concepts.
+    - [x] Louvain Clustering: Modularity-based community detection.
+    - [x] Link Suggestion: Predict missing links via content similarity.
+- [x] **Enhanced Visualizer**:
+    - [x] Integrated Previewer (sidebar showing Rank/Metadata).
+    - [x] Node Search in UI.

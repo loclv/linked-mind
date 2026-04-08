@@ -34,6 +34,57 @@
       left: 0;
     }
 
+    #search-container {
+      position: absolute;
+      top: 24px;
+      left: 280px; /* Offset from app-title */
+      z-index: 20;
+    }
+
+    #search-input {
+      background: var(--panel-bg);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      color: #fff;
+      padding: 10px 20px;
+      width: 250px;
+      outline: none;
+      transition: border-color 0.2s, width 0.3s;
+    }
+
+    #search-input:focus {
+      border-color: var(--text-highlight);
+      width: 300px;
+    }
+
+    #search-results {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      background: var(--panel-bg);
+      backdrop-filter: blur(16px);
+      border-radius: 8px;
+      margin-top: 8px;
+      max-height: 200px;
+      overflow-y: auto;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .search-item {
+      padding: 10px 16px;
+      font-size: 14px;
+      cursor: pointer;
+      color: var(--text-main);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    }
+
+    .search-item:hover {
+      background: rgba(102, 252, 241, 0.1);
+      color: #fff;
+    }
+
     /* Glassmorphism sidebar */
     #sidebar {
       position: absolute;
@@ -199,6 +250,12 @@
 </head>
 <body>
   <div class="app-title">Linked<span>Mind</span></div>
+  
+  <div id="search-container">
+    <input type="text" id="search-input" placeholder="Search knowledge..." onkeyup="handleSearch(event)">
+    <div id="search-results"></div>
+  </div>
+
   <div id="loader">Loading Neural Graph...</div>
   <div id="graph"></div>
 
@@ -213,6 +270,10 @@
       <div class="meta-item">
         <span class="meta-label">Cluster</span>
         <span class="meta-value" id="side-group">-</span>
+      </div>
+      <div class="meta-item">
+        <span class="meta-label">PageRank</span>
+        <span class="meta-value" id="side-rank" style="color:#66fcf1; font-weight:700;">-</span>
       </div>
       <div class="meta-item">
         <span class="meta-label">Connections</span>
@@ -233,6 +294,7 @@
 
     let graphData = null;
     let selectedNode = null;
+    let graphInstance = null;
     const sidebar = document.getElementById('sidebar');
 
     fetch('graph.json')
@@ -252,7 +314,7 @@
           node.val = (nodeDegrees[node.id] || 0) + 1;
         });
 
-        const Graph = ForceGraph()(document.getElementById('graph'))
+        graphInstance = ForceGraph()(document.getElementById('graph'))
           .graphData(data)
           .nodeId('id')
           .nodeLabel('title')
@@ -269,36 +331,22 @@
           .linkDirectionalArrowLength(4)
           .linkDirectionalArrowRelPos(1)
           .onNodeClick(node => {
-            selectedNode = node;
-            Graph.nodeColor(Graph.nodeColor()); // trigger redraw
-            
-            // Center camera on node
-            Graph.centerAt(node.x, node.y, 1000);
-            Graph.zoom(8, 2000);
-            
-            openSidebar(node);
+            focusNode(node);
           })
           .onBackgroundClick(() => {
             selectedNode = null;
-            Graph.nodeColor(Graph.nodeColor());
+            graphInstance.nodeColor(graphInstance.nodeColor());
             closeSidebar();
           });
 
-        // Adding glow effect
-        Graph.onRenderFramePost(ctx => {
-          ctx.shadowBlur = 15;
-          ctx.shadowColor = 'rgba(102, 252, 241, 0.4)';
-        });
-        
-        // Custom node rendering for selected state glow
-        Graph.nodeCanvasObject((node, ctx, globalScale) => {
+        // Custom node rendering
+        graphInstance.nodeCanvasObject((node, ctx, globalScale) => {
           const label = node.title;
           const isSelected = selectedNode === node;
           const fontSize = 12/globalScale;
           
-          const r = Math.sqrt(node.val) * Graph.nodeRelSize();
+          const r = Math.sqrt(node.val) * graphInstance.nodeRelSize();
 
-          // Draw Node
           ctx.beginPath();
           ctx.arc(node.x, node.y, r, 0, 2 * Math.PI, false);
           ctx.fillStyle = isSelected ? '#ffffff' : colorPalette[node.group % colorPalette.length];
@@ -312,11 +360,8 @@
           }
           
           ctx.fill();
-          
-          // Reset shadow for text
           ctx.shadowBlur = 0;
 
-          // Draw Text
           ctx.font = `${fontSize}px Inter, Sans-Serif`;
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
@@ -330,13 +375,49 @@
         console.error(err);
       });
 
+    function focusNode(node) {
+      selectedNode = node;
+      graphInstance.nodeColor(graphInstance.nodeColor()); // trigger redraw
+      
+      graphInstance.centerAt(node.x, node.y, 1000);
+      graphInstance.zoom(8, 1000);
+      
+      openSidebar(node);
+    }
+
+    function handleSearch(e) {
+      const query = e.target.value.toLowerCase();
+      const resultsContainer = document.getElementById('search-results');
+      resultsContainer.innerHTML = '';
+      
+      if (!query) return;
+
+      const filtered = graphData.nodes.filter(n => 
+        n.title.toLowerCase().includes(query) || 
+        n.id.toLowerCase().includes(query)
+      ).slice(0, 10);
+
+      filtered.forEach(node => {
+        const item = document.createElement('div');
+        item.className = 'search-item';
+        item.innerText = node.title;
+        item.onclick = () => {
+          const realNode = graphData.nodes.find(n => n.id === node.id);
+          focusNode(realNode);
+          resultsContainer.innerHTML = '';
+          document.getElementById('search-input').value = node.title;
+        };
+        resultsContainer.appendChild(item);
+      });
+    }
+
     function openSidebar(node) {
       document.getElementById('side-title').innerText = node.title;
       document.getElementById('side-id').innerText = node.id;
       document.getElementById('side-group').innerText = node.group;
-      document.getElementById('side-degree').innerText = node.val - 1; // subtract base size
+      document.getElementById('side-rank').innerText = node.rank ? node.rank.toFixed(6) : 'N/A';
+      document.getElementById('side-degree').innerText = node.val - 1;
 
-      // Find relationships
       const relContainer = document.getElementById('side-relations');
       relContainer.innerHTML = '';
       
@@ -367,9 +448,12 @@
     function appendRelationCard(direction, type, nodeId) {
       const card = document.createElement('div');
       card.className = 'relation-card';
+      const targetNode = graphData.nodes.find(n => n.id === nodeId);
+      card.onclick = () => focusNode(targetNode);
+      
       card.innerHTML = `
         <div class="relation-type">${direction} &bull; <span style="color:#c5c6c7">${type}</span></div>
-        <div class="relation-target">${nodeId}</div>
+        <div class="relation-target">${targetNode ? targetNode.title : nodeId}</div>
       `;
       document.getElementById('side-relations').appendChild(card);
     }
