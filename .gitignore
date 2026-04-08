@@ -19,6 +19,7 @@ temp/
 *.sqlite
 logs/
 coverage-out/
+codedb.snapshot
 
 .env
 config.json
