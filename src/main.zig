@@ -5,9 +5,7 @@ const graph = @import("graph.zig");
 const parser = @import("parser.zig");
 
 pub fn main() !void {
-    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .{};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    const allocator = std.heap.smp_allocator;
 
     var kb_graph = graph.Graph.init(allocator);
     defer kb_graph.deinit();
@@ -332,14 +330,14 @@ test {
 test "calculateHashFromReader: consistent hashing" {
     const content = "hello world";
     var fbs = std.io.fixedBufferStream(content);
-    
+
     const hash1 = try calculateHashFromReader(fbs.reader());
-    
+
     fbs.reset();
     const hash2 = try calculateHashFromReader(fbs.reader());
-    
+
     try std.testing.expectEqualSlices(u8, &hash1, &hash2);
-    
+
     // Known SHA256 for "hello world"
     const expected_hex = "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9";
     var expected: [32]u8 = undefined;
