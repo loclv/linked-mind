@@ -80,14 +80,14 @@ pub const Cache = struct {
     }
 
     fn parseNode(self: *Cache, obj: std.json.ObjectMap, path: []const u8) !parser.Node {
-        var node = parser.Node{
+        var node: parser.Node = .{
             .path = try self.allocator.dupe(u8, path),
             .title = try self.allocator.dupe(u8, if (obj.get("title")) |t| t.string else ""),
             .content = try self.allocator.dupe(u8, if (obj.get("content")) |c| c.string else ""),
             .links = .{},
             .backlinks = .{},
             .tags = .{},
-            .metadata = .{},
+            .metadata = std.StringHashMap([]const u8).init(self.allocator),
         };
 
         if (obj.get("tags")) |tags_val| {
@@ -121,7 +121,7 @@ pub const Cache = struct {
                 var it = meta_val.object.iterator();
                 while (it.next()) |entry| {
                     if (entry.value_ptr.* == .string) {
-                        try node.metadata.put(self.allocator, try self.allocator.dupe(u8, entry.key_ptr.*), try self.allocator.dupe(u8, entry.value_ptr.*.string));
+                        try node.metadata.put(try self.allocator.dupe(u8, entry.key_ptr.*), try self.allocator.dupe(u8, entry.value_ptr.*.string));
                     }
                 }
             }
@@ -134,7 +134,7 @@ pub const Cache = struct {
         var file = try std.fs.cwd().createFile(path, .{});
         defer file.close();
 
-        var out_list = std.ArrayListUnmanaged(u8){};
+        var out_list: std.ArrayList(u8) = .{};
         defer out_list.deinit(self.allocator);
 
         var writer = out_list.writer(self.allocator);

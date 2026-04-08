@@ -9,20 +9,20 @@ pub const Node = struct {
     path: []const u8,
     title: []const u8,
     content: []const u8,
-    links: std.ArrayListUnmanaged(Link),
-    backlinks: std.ArrayListUnmanaged([]const u8),
-    tags: std.ArrayListUnmanaged([]const u8),
-    metadata: std.StringHashMapUnmanaged([]const u8),
+    links: std.ArrayList(Link),
+    backlinks: std.ArrayList([]const u8),
+    tags: std.ArrayList([]const u8),
+    metadata: std.StringHashMap([]const u8),
 
     pub fn clone(self: Node, allocator: std.mem.Allocator) !Node {
-        var new_node = Node{
+        var new_node: Node = .{
             .path = try allocator.dupe(u8, self.path),
             .title = try allocator.dupe(u8, self.title),
             .content = try allocator.dupe(u8, self.content),
             .links = try self.links.clone(allocator),
             .backlinks = try self.backlinks.clone(allocator),
             .tags = try self.tags.clone(allocator),
-            .metadata = .{},
+            .metadata = std.StringHashMap([]const u8).init(allocator),
         };
         errdefer new_node.deinit(allocator);
 
@@ -45,7 +45,7 @@ pub const Node = struct {
         // Deep clone metadata
         var meta_it = self.metadata.iterator();
         while (meta_it.next()) |entry| {
-            try new_node.metadata.put(allocator, try allocator.dupe(u8, entry.key_ptr.*), try allocator.dupe(u8, entry.value_ptr.*));
+            try new_node.metadata.put(try allocator.dupe(u8, entry.key_ptr.*), try allocator.dupe(u8, entry.value_ptr.*));
         }
 
         return new_node;
@@ -70,10 +70,10 @@ pub const Node = struct {
             allocator.free(entry.key_ptr.*);
             allocator.free(entry.value_ptr.*);
         }
-        self.metadata.deinit(allocator);
+        self.metadata.deinit();
+        self.* = undefined;
     }
 };
-
 
 pub const Parser = struct {
     allocator: std.mem.Allocator,
@@ -89,14 +89,14 @@ pub const Parser = struct {
         const content = try file.readToEndAlloc(self.allocator, 1024 * 1024); // max 1MB
         defer self.allocator.free(content);
 
-        var node = Node{
+        var node: Node = .{
             .path = try self.allocator.dupe(u8, path),
             .title = try self.allocator.dupe(u8, std.fs.path.basename(path)),
             .content = try self.allocator.dupe(u8, content),
             .links = .{},
             .backlinks = .{},
             .tags = .{},
-            .metadata = .{},
+            .metadata = std.StringHashMap([]const u8).init(self.allocator),
         };
 
         var content_start: usize = 0;
@@ -118,7 +118,7 @@ pub const Parser = struct {
                     const value = std.mem.trim(u8, value_raw, " ");
 
                     if (key.len > 0) {
-                        try node.metadata.put(self.allocator, try self.allocator.dupe(u8, key), try self.allocator.dupe(u8, value));
+                        try node.metadata.put(try self.allocator.dupe(u8, key), try self.allocator.dupe(u8, value));
                     }
                 }
             }
@@ -127,17 +127,17 @@ pub const Parser = struct {
         // Simple Wikilink extraction: [[link]]
         var i: usize = content_start;
         while (i < content.len) : (i += 1) {
-            if (i + 2 < content.len and std.mem.eql(u8, content[i..i+2], "[[")) {
+            if (i + 2 < content.len and std.mem.eql(u8, content[i .. i + 2], "[[")) {
                 const start = i + 2;
                 var end = start;
-                while (end < content.len and !(end + 2 <= content.len and std.mem.eql(u8, content[end..end+2], "]]"))) : (end += 1) {}
-                if (end + 2 <= content.len and std.mem.eql(u8, content[end..end+2], "]]")) {
+                while (end < content.len and !(end + 2 <= content.len and std.mem.eql(u8, content[end .. end + 2], "]]"))) : (end += 1) {}
+                if (end + 2 <= content.len and std.mem.eql(u8, content[end .. end + 2], "]]")) {
                     const raw_link = content[start..end];
-                    var link_obj = Link{ .target = undefined, .nature = null };
-                    
+                    var link_obj: Link = .{ .target = undefined, .nature = null };
+
                     if (std.mem.indexOf(u8, raw_link, "::")) |sep_idx| {
                         link_obj.nature = try self.allocator.dupe(u8, std.mem.trim(u8, raw_link[0..sep_idx], " "));
-                        link_obj.target = try self.allocator.dupe(u8, std.mem.trim(u8, raw_link[sep_idx + 2..], " "));
+                        link_obj.target = try self.allocator.dupe(u8, std.mem.trim(u8, raw_link[sep_idx + 2 ..], " "));
                     } else {
                         link_obj.target = try self.allocator.dupe(u8, std.mem.trim(u8, raw_link, " "));
                     }

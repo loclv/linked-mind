@@ -1,4 +1,5 @@
 const std = @import("std");
+
 const parser = @import("parser.zig");
 
 pub const Graph = struct {
@@ -20,6 +21,7 @@ pub const Graph = struct {
             node.deinit(self.allocator);
         }
         self.nodes.deinit();
+        self.* = undefined;
     }
 
     pub fn addNode(self: *Graph, node: parser.Node) !void {
@@ -29,7 +31,7 @@ pub const Graph = struct {
 
     pub fn getContext(self: *Graph, path: []const u8) ![]const u8 {
         const node = self.nodes.get(path) orelse return error.NodeNotFound;
-        var context = std.ArrayListUnmanaged(u8){};
+        var context: std.ArrayList(u8) = .{};
         defer context.deinit(self.allocator);
 
         try context.writer(self.allocator).print("### Node: {s}\n", .{node.title});
@@ -83,7 +85,7 @@ pub const Graph = struct {
             }
         }
 
-        return try context.toOwnedSlice(self.allocator);
+        return context.toOwnedSlice(self.allocator);
     }
 
     pub fn findNodeByTitle(self: *Graph, title: []const u8) ?*parser.Node {
@@ -106,11 +108,11 @@ pub const Graph = struct {
             return result;
         }
 
-        var queue = std.ArrayListUnmanaged(*parser.Node){};
+        var queue: std.ArrayList(*parser.Node) = .{};
         defer queue.deinit(self.allocator);
 
-        var parent_map = std.AutoHashMapUnmanaged(*parser.Node, *parser.Node){};
-        defer parent_map.deinit(self.allocator);
+        var parent_map = std.AutoHashMap(*parser.Node, *parser.Node).init(self.allocator);
+        defer parent_map.deinit();
 
         try queue.append(self.allocator, start_node);
 
@@ -128,7 +130,7 @@ pub const Graph = struct {
             for (current.links.items) |link| {
                 if (self.findNodeByTitle(link.target)) |neighbor| {
                     if (!parent_map.contains(neighbor) and neighbor != start_node) {
-                        try parent_map.put(self.allocator, neighbor, current);
+                        try parent_map.put(neighbor, current);
                         try queue.append(self.allocator, neighbor);
                     }
                 }
@@ -137,7 +139,7 @@ pub const Graph = struct {
 
         if (!found) return null;
 
-        var path = std.ArrayListUnmanaged([]const u8){};
+        var path: std.ArrayList([]const u8) = .{};
         var curr = end_node;
         while (curr != start_node) {
             try path.append(self.allocator, try self.allocator.dupe(u8, curr.title));
@@ -234,10 +236,11 @@ pub const Graph = struct {
     }
 
     pub const Cluster = struct {
-        nodes: std.ArrayListUnmanaged(*parser.Node),
+        nodes: std.ArrayList(*parser.Node),
 
         pub fn deinit(self: *Cluster, allocator: std.mem.Allocator) void {
             self.nodes.deinit(allocator);
+            self.* = undefined;
         }
     };
 
@@ -252,6 +255,7 @@ pub const Graph = struct {
             var it = self.words.keyIterator();
             while (it.next()) |key| self.words.allocator.free(key.*);
             self.words.deinit();
+            self.* = undefined;
         }
     };
 
@@ -303,7 +307,7 @@ pub const Graph = struct {
         var visited = std.AutoHashMap(*parser.Node, void).init(self.allocator);
         defer visited.deinit();
 
-        var clusters = std.ArrayListUnmanaged(Cluster){};
+        var clusters: std.ArrayList(Cluster) = .{};
         defer clusters.deinit(self.allocator);
 
         var node_it = self.nodes.iterator();
@@ -311,8 +315,8 @@ pub const Graph = struct {
             const start_node = entry.value_ptr;
             if (visited.contains(start_node)) continue;
 
-            var cluster = Cluster{ .nodes = .{} };
-            var queue = std.ArrayListUnmanaged(*parser.Node){};
+            var cluster: Cluster = .{ .nodes = .{} };
+            var queue: std.ArrayList(*parser.Node) = .{};
             defer queue.deinit(self.allocator);
 
             try queue.append(self.allocator, start_node);
@@ -347,7 +351,7 @@ pub const Graph = struct {
             try clusters.append(self.allocator, cluster);
         }
 
-        return try clusters.toOwnedSlice(self.allocator);
+        return clusters.toOwnedSlice(self.allocator);
     }
 
     /// Louvain-style modularity-based community detection.
@@ -453,13 +457,13 @@ pub const Graph = struct {
         return community;
     }
 
-    pub fn generateMOC(self: *Graph) ![]const u8 {
+    pub fn generateMoc(self: *Graph) ![]const u8 {
         // Use Louvain for better community structure
         var communities = try self.detectLouvainCommunities(10);
         defer communities.deinit();
 
         // Group nodes by community ID
-        var groups = std.AutoHashMap(usize, std.ArrayListUnmanaged([]const u8)).init(self.allocator);
+        var groups = std.AutoHashMap(usize, std.ArrayList([]const u8)).init(self.allocator);
         defer {
             var g_it = groups.valueIterator();
             while (g_it.next()) |v| v.deinit(self.allocator);
@@ -473,7 +477,7 @@ pub const Graph = struct {
             try gop.value_ptr.append(self.allocator, entry.key_ptr.*);
         }
 
-        var moc = std.ArrayListUnmanaged(u8){};
+        var moc: std.ArrayList(u8) = .{};
         defer moc.deinit(self.allocator);
 
         try moc.writer(self.allocator).print("# Map of Content (MOC)\n", .{});
@@ -495,7 +499,7 @@ pub const Graph = struct {
             cluster_num += 1;
         }
 
-        return try moc.toOwnedSlice(self.allocator);
+        return moc.toOwnedSlice(self.allocator);
     }
 
     pub fn findSimilarNodes(self: *Graph, target_title: []const u8, limit: usize) ![]ScoreResult {
@@ -516,7 +520,7 @@ pub const Graph = struct {
 
         const target_ws = word_sets.getPtr(target_node) orelse return error.NodeNotFound;
 
-        var scores = std.ArrayListUnmanaged(ScoreResult){};
+        var scores: std.ArrayList(ScoreResult) = .{};
         defer scores.deinit(self.allocator);
 
         node_it = self.nodes.iterator();
@@ -539,7 +543,7 @@ pub const Graph = struct {
         std.mem.sort(ScoreResult, scores.items, {}, Sorter.lessThan);
 
         const real_limit = if (scores.items.len < limit) scores.items.len else limit;
-        return try self.allocator.dupe(ScoreResult, scores.items[0..real_limit]);
+        return self.allocator.dupe(ScoreResult, scores.items[0..real_limit]);
     }
 
     /// Suggested link between two nodes that are content-similar but not explicitly linked
@@ -565,7 +569,7 @@ pub const Graph = struct {
             try word_sets.put(entry.value_ptr, try self.buildWordSet(entry.value_ptr.content));
         }
 
-        var suggestions = std.ArrayListUnmanaged(LinkSuggestion){};
+        var suggestions: std.ArrayList(LinkSuggestion) = .{};
         defer suggestions.deinit(self.allocator);
 
         // Check all pairs (avoiding duplicates by comparing pointer addresses)
@@ -620,10 +624,10 @@ pub const Graph = struct {
         std.mem.sort(LinkSuggestion, suggestions.items, {}, Sorter.lessThan);
 
         const real_limit = if (suggestions.items.len < limit) suggestions.items.len else limit;
-        return try self.allocator.dupe(LinkSuggestion, suggestions.items[0..real_limit]);
+        return self.allocator.dupe(LinkSuggestion, suggestions.items[0..real_limit]);
     }
 
-    pub fn exportGraphJSON(self: *Graph) ![]const u8 {
+    pub fn exportGraphJson(self: *Graph) ![]const u8 {
         const NodeObj = struct {
             id: []const u8,
             title: []const u8,
@@ -688,7 +692,7 @@ pub const Graph = struct {
             }
         }
 
-        const graph_obj = GraphObj{
+        const graph_obj: GraphObj = .{
             .nodes = nodes_arr.items,
             .links = links_arr.items,
         };
@@ -702,14 +706,14 @@ pub const Graph = struct {
 
         try jw.write(graph_obj);
 
-        return try writer.toOwnedSlice();
+        return writer.toOwnedSlice();
     }
 
-    pub const GCReport = struct {
-        orphans: std.ArrayListUnmanaged(*parser.Node),
-        islands: std.ArrayListUnmanaged(Cluster),
+    pub const GcReport = struct {
+        orphans: std.ArrayList(*parser.Node),
+        islands: std.ArrayList(Cluster),
 
-        pub fn deinit(self: *GCReport, allocator: std.mem.Allocator) void {
+        pub fn deinit(self: *GcReport, allocator: std.mem.Allocator) void {
             self.orphans.deinit(allocator);
             for (self.islands.items) |*c| c.deinit(allocator);
             self.islands.deinit(allocator);
@@ -717,11 +721,11 @@ pub const Graph = struct {
         }
     };
 
-    pub fn getGCReport(self: *Graph, island_threshold: usize) !GCReport {
+    pub fn getGcReport(self: *Graph, island_threshold: usize) !GcReport {
         const clusters = try self.detectClusters();
         defer self.allocator.free(clusters);
 
-        var report: GCReport = .{
+        var report: GcReport = .{
             .orphans = .{},
             .islands = .{},
         };
