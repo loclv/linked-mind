@@ -198,3 +198,50 @@ pub const Cache = struct {
         try writer.writeAll("}}}");
     }
 };
+
+test "Cache: save and load round-trip" {
+    const allocator = std.testing.allocator;
+    var cache = Cache.init(allocator);
+    defer cache.deinit();
+
+    var node: parser.Node = .{
+        .path = try allocator.dupe(u8, "test.md"),
+        .title = try allocator.dupe(u8, "Test Title"),
+        .content = try allocator.dupe(u8, "Test content"),
+        .links = .{},
+        .backlinks = .{},
+        .tags = .{},
+        .metadata = std.StringHashMap([]const u8).init(allocator),
+    };
+    try node.tags.append(allocator, try allocator.dupe(u8, "tag1"));
+    try node.links.append(allocator, .{ .target = try allocator.dupe(u8, "target1"), .nature = try allocator.dupe(u8, "nature1") });
+    try node.metadata.put(try allocator.dupe(u8, "key1"), try allocator.dupe(u8, "value1"));
+
+    var hash: [32]u8 = undefined;
+    @memset(&hash, 0xAB);
+
+    try cache.entries.put(try allocator.dupe(u8, "test.md"), .{
+        .mtime = 123456789,
+        .hash = hash,
+        .node = node,
+    });
+
+    const cache_path = "test_cache.json";
+    try cache.save(cache_path);
+    defer std.fs.cwd().deleteFile(cache_path) catch {};
+
+    var new_cache = Cache.init(allocator);
+    defer new_cache.deinit();
+
+    try new_cache.load(cache_path);
+
+    try std.testing.expectEqual(@as(u32, 1), new_cache.entries.count());
+    const entry = new_cache.entries.get("test.md").?;
+    try std.testing.expectEqual(@as(i128, 123456789), entry.mtime);
+    try std.testing.expectEqualSlices(u8, &hash, &entry.hash);
+    try std.testing.expectEqualStrings("Test Title", entry.node.title);
+    try std.testing.expectEqualStrings("tag1", entry.node.tags.items[0]);
+    try std.testing.expectEqualStrings("nature1", entry.node.links.items[0].nature.?);
+    try std.testing.expectEqualStrings("value1", entry.node.metadata.get("key1").?);
+}
+

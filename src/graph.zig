@@ -747,3 +747,152 @@ pub const Graph = struct {
         return report;
     }
 };
+
+test "Graph: basic operations and backlink resolution" {
+    const allocator = std.testing.allocator;
+    var graph = Graph.init(allocator);
+    defer graph.deinit();
+
+    var node1: parser.Node = .{
+        .path = try allocator.dupe(u8, "a.md"),
+        .title = try allocator.dupe(u8, "A"),
+        .content = try allocator.dupe(u8, "Links to [[B]]"),
+        .links = .{},
+        .backlinks = .{},
+        .tags = .{},
+        .metadata = std.StringHashMap([]const u8).init(allocator),
+    };
+    try node1.links.append(allocator, .{ .target = try allocator.dupe(u8, "B"), .nature = null });
+
+    const node2: parser.Node = .{
+        .path = try allocator.dupe(u8, "b.md"),
+        .title = try allocator.dupe(u8, "B"),
+        .content = try allocator.dupe(u8, "No links"),
+        .links = .{},
+        .backlinks = .{},
+        .tags = .{},
+        .metadata = std.StringHashMap([]const u8).init(allocator),
+    };
+
+    try graph.addNode(node1);
+    try graph.addNode(node2);
+
+    try graph.resolveBacklinks();
+
+    const b = graph.findNodeByTitle("B").?;
+    try std.testing.expectEqual(@as(usize, 1), b.backlinks.items.len);
+    try std.testing.expectEqualStrings("A", b.backlinks.items[0]);
+}
+
+test "Graph: findShortestPath" {
+    const allocator = std.testing.allocator;
+    var graph = Graph.init(allocator);
+    defer graph.deinit();
+
+    // A -> B -> C
+    // A -> D -> C
+    // E (isolated)
+
+    const titles = [_][]const u8{ "A", "B", "C", "D", "E" };
+    for (titles) |title| {
+        const path = try std.fmt.allocPrint(allocator, "{s}.md", .{title});
+        defer allocator.free(path);
+        try graph.addNode(.{
+            .path = try allocator.dupe(u8, path),
+            .title = try allocator.dupe(u8, title),
+            .content = try allocator.dupe(u8, ""),
+            .links = .{},
+            .backlinks = .{},
+            .tags = .{},
+            .metadata = std.StringHashMap([]const u8).init(allocator),
+        });
+    }
+
+    try graph.findNodeByTitle("A").?.links.append(allocator, .{ .target = try allocator.dupe(u8, "B"), .nature = null });
+    try graph.findNodeByTitle("B").?.links.append(allocator, .{ .target = try allocator.dupe(u8, "C"), .nature = null });
+    try graph.findNodeByTitle("A").?.links.append(allocator, .{ .target = try allocator.dupe(u8, "D"), .nature = null });
+    try graph.findNodeByTitle("D").?.links.append(allocator, .{ .target = try allocator.dupe(u8, "C"), .nature = null });
+
+    const path = (try graph.findShortestPath("A", "C")).?;
+    defer {
+        for (path) |p| allocator.free(p);
+        allocator.free(path);
+    }
+
+    try std.testing.expectEqual(@as(usize, 3), path.len);
+    try std.testing.expectEqualStrings("A", path[0]);
+    try std.testing.expectEqualStrings("C", path[2]);
+    // Could be B or D
+    try std.testing.expect(std.mem.eql(u8, path[1], "B") or std.mem.eql(u8, path[1], "D"));
+
+    try std.testing.expect((try graph.findShortestPath("A", "E")) == null);
+}
+
+test "Graph: computePageRank" {
+    const allocator = std.testing.allocator;
+    var graph = Graph.init(allocator);
+    defer graph.deinit();
+
+    // Star graph: B, C, D all link to A
+    const titles = [_][]const u8{ "A", "B", "C", "D" };
+    for (titles) |title| {
+        try graph.addNode(.{
+            .path = try allocator.dupe(u8, title),
+            .title = try allocator.dupe(u8, title),
+            .content = try allocator.dupe(u8, ""),
+            .links = .{},
+            .backlinks = .{},
+            .tags = .{},
+            .metadata = std.StringHashMap([]const u8).init(allocator),
+        });
+    }
+
+    try graph.findNodeByTitle("B").?.links.append(allocator, .{ .target = try allocator.dupe(u8, "A"), .nature = null });
+    try graph.findNodeByTitle("C").?.links.append(allocator, .{ .target = try allocator.dupe(u8, "A"), .nature = null });
+    try graph.findNodeByTitle("D").?.links.append(allocator, .{ .target = try allocator.dupe(u8, "A"), .nature = null });
+
+    try graph.resolveBacklinks();
+
+    var pr = try graph.computePageRank(10);
+    defer pr.deinit();
+
+    const score_a = pr.get("A").?;
+    const score_b = pr.get("B").?;
+    
+    // A should have higher rank than B because everyone links to A
+    try std.testing.expect(score_a > score_b);
+}
+
+test "Graph: detectClusters" {
+    const allocator = std.testing.allocator;
+    var graph = Graph.init(allocator);
+    defer graph.deinit();
+
+    // Two isolated pairs: (A-B) and (C-D)
+    const titles = [_][]const u8{ "A", "B", "C", "D" };
+    for (titles) |title| {
+        try graph.addNode(.{
+            .path = try allocator.dupe(u8, title),
+            .title = try allocator.dupe(u8, title),
+            .content = try allocator.dupe(u8, ""),
+            .links = .{},
+            .backlinks = .{},
+            .tags = .{},
+            .metadata = std.StringHashMap([]const u8).init(allocator),
+        });
+    }
+
+    try graph.findNodeByTitle("A").?.links.append(allocator, .{ .target = try allocator.dupe(u8, "B"), .nature = null });
+    try graph.findNodeByTitle("C").?.links.append(allocator, .{ .target = try allocator.dupe(u8, "D"), .nature = null });
+
+    try graph.resolveBacklinks();
+
+    const clusters = try graph.detectClusters();
+    defer {
+        for (clusters) |*c| c.deinit(allocator);
+        allocator.free(clusters);
+    }
+
+    try std.testing.expectEqual(@as(usize, 2), clusters.len);
+}
+

@@ -89,6 +89,10 @@ pub const Parser = struct {
         const content = try file.readToEndAlloc(self.allocator, 1024 * 1024); // max 1MB
         defer self.allocator.free(content);
 
+        return self.parseContent(path, content);
+    }
+
+    pub fn parseContent(self: *Parser, path: []const u8, content: []const u8) !Node {
         var node: Node = .{
             .path = try self.allocator.dupe(u8, path),
             .title = try self.allocator.dupe(u8, std.fs.path.basename(path)),
@@ -98,6 +102,7 @@ pub const Parser = struct {
             .tags = .{},
             .metadata = std.StringHashMap([]const u8).init(self.allocator),
         };
+        errdefer node.deinit(self.allocator);
 
         var content_start: usize = 0;
 
@@ -127,7 +132,7 @@ pub const Parser = struct {
         // Simple Wikilink extraction: [[link]]
         var i: usize = content_start;
         while (i < content.len) : (i += 1) {
-            if (i + 2 < content.len and std.mem.eql(u8, content[i .. i + 2], "[[")) {
+            if (i + 2 <= content.len and std.mem.eql(u8, content[i .. i + 2], "[[")) {
                 const start = i + 2;
                 var end = start;
                 while (end < content.len and !(end + 2 <= content.len and std.mem.eql(u8, content[end .. end + 2], "]]"))) : (end += 1) {}
@@ -162,3 +167,97 @@ pub const Parser = struct {
         return node;
     }
 };
+
+test "Parser: basic parsing" {
+    const allocator = std.testing.allocator;
+    var parser = Parser.init(allocator);
+
+    const content = "Hello world";
+    var node = try parser.parseContent("test.md", content);
+    defer node.deinit(allocator);
+
+    try std.testing.expectEqualStrings("test.md", node.path);
+    try std.testing.expectEqualStrings("test.md", node.title);
+    try std.testing.expectEqualStrings(content, node.content);
+    try std.testing.expectEqual(@as(usize, 0), node.links.items.len);
+    try std.testing.expectEqual(@as(usize, 0), node.tags.items.len);
+    try std.testing.expectEqual(@as(u32, 0), node.metadata.count());
+}
+
+test "Parser: frontmatter" {
+    const allocator = std.testing.allocator;
+    var parser = Parser.init(allocator);
+
+    const content =
+        \\---
+        \\author: John Doe
+        \\type: note
+        \\---
+        \\Content here
+    ;
+    var node = try parser.parseContent("test.md", content);
+    defer node.deinit(allocator);
+
+    try std.testing.expectEqualStrings("John Doe", node.metadata.get("author").?);
+    try std.testing.expectEqualStrings("note", node.metadata.get("type").?);
+    try std.testing.expectEqual(@as(u32, 2), node.metadata.count());
+}
+
+test "Parser: wikilinks" {
+    const allocator = std.testing.allocator;
+    var parser = Parser.init(allocator);
+
+    const content = "Check [[Other File]] and [[supports::Feature]]";
+    var node = try parser.parseContent("test.md", content);
+    defer node.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 2), node.links.items.len);
+    try std.testing.expectEqualStrings("Other File", node.links.items[0].target);
+    try std.testing.expect(node.links.items[0].nature == null);
+
+    try std.testing.expectEqualStrings("Feature", node.links.items[1].target);
+    try std.testing.expectEqualStrings("supports", node.links.items[1].nature.?);
+}
+
+test "Parser: tags" {
+    const allocator = std.testing.allocator;
+    var parser = Parser.init(allocator);
+
+    const content = "This is #important and #urgent, but not #. or # alone";
+    var node = try parser.parseContent("test.md", content);
+    defer node.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 2), node.tags.items.len);
+    try std.testing.expectEqualStrings("important", node.tags.items[0]);
+    try std.testing.expectEqualStrings("urgent", node.tags.items[1]);
+}
+
+test "Parser: complex combination" {
+    const allocator = std.testing.allocator;
+    var parser = Parser.init(allocator);
+
+    const content =
+        \\---
+        \\key: value
+        \\---
+        \\#start
+        \\Link to [[Target]] with #tag inside.
+        \\Another [[relation::AnotherTarget]].
+        \\#end
+    ;
+    var node = try parser.parseContent("complex.md", content);
+    defer node.deinit(allocator);
+
+    try std.testing.expectEqual(@as(u32, 1), node.metadata.count());
+    try std.testing.expectEqual(@as(usize, 2), node.links.items.len);
+    try std.testing.expectEqual(@as(usize, 3), node.tags.items.len);
+    
+    try std.testing.expectEqualStrings("value", node.metadata.get("key").?);
+    try std.testing.expectEqualStrings("Target", node.links.items[0].target);
+    try std.testing.expectEqualStrings("AnotherTarget", node.links.items[1].target);
+    try std.testing.expectEqualStrings("relation", node.links.items[1].nature.?);
+    try std.testing.expectEqualStrings("start", node.tags.items[0]);
+    try std.testing.expectEqualStrings("tag", node.tags.items[1]);
+    try std.testing.expectEqualStrings("end", node.tags.items[2]);
+}
+
