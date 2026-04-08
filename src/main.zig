@@ -313,3 +313,36 @@ fn calculateHash(path: []const u8) ![32]u8 {
     }
     return hash.finalResult();
 }
+
+fn calculateHashFromReader(reader: anytype) ![32]u8 {
+    var hash = std.crypto.hash.sha2.Sha256.init(.{});
+    var buffer: [8192]u8 = undefined;
+    while (true) {
+        const bytes_read = try reader.read(&buffer);
+        if (bytes_read == 0) break;
+        hash.update(buffer[0..bytes_read]);
+    }
+    return hash.finalResult();
+}
+
+test {
+    std.testing.refAllDecls(@This());
+}
+
+test "calculateHashFromReader: consistent hashing" {
+    const content = "hello world";
+    var fbs = std.io.fixedBufferStream(content);
+    
+    const hash1 = try calculateHashFromReader(fbs.reader());
+    
+    fbs.reset();
+    const hash2 = try calculateHashFromReader(fbs.reader());
+    
+    try std.testing.expectEqualSlices(u8, &hash1, &hash2);
+    
+    // Known SHA256 for "hello world"
+    const expected_hex = "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9";
+    var expected: [32]u8 = undefined;
+    _ = try std.fmt.hexToBytes(&expected, expected_hex);
+    try std.testing.expectEqualSlices(u8, &expected, &hash1);
+}
