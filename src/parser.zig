@@ -151,8 +151,13 @@ pub const Parser = struct {
                     i = end + 1;
                 }
             } else if (content[i] == '#') {
+                // Tag extraction: #tag (must NOT be markdown header ##, ###, etc.)
+                // Check if next char is # or space (header pattern like "# " or "##")
+                if (i + 1 < content.len and (content[i + 1] == '#' or content[i + 1] == ' ')) {
+                    // This is a markdown header, skip
+                    continue;
+                }
 
-                // Simple Tag extraction: #tag (must be followed by space or newline)
                 const start = i + 1;
                 var end = start;
                 while (end < content.len and !std.ascii.isWhitespace(content[end]) and content[end] != '.' and content[end] != ',') : (end += 1) {}
@@ -251,7 +256,7 @@ test "Parser: complex combination" {
     try std.testing.expectEqual(@as(u32, 1), node.metadata.count());
     try std.testing.expectEqual(@as(usize, 2), node.links.items.len);
     try std.testing.expectEqual(@as(usize, 3), node.tags.items.len);
-    
+
     try std.testing.expectEqualStrings("value", node.metadata.get("key").?);
     try std.testing.expectEqualStrings("Target", node.links.items[0].target);
     try std.testing.expectEqualStrings("AnotherTarget", node.links.items[1].target);
@@ -260,4 +265,3 @@ test "Parser: complex combination" {
     try std.testing.expectEqualStrings("tag", node.tags.items[1]);
     try std.testing.expectEqualStrings("end", node.tags.items[2]);
 }
-

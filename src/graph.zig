@@ -244,7 +244,10 @@ pub const Graph = struct {
         }
     };
 
-    pub const ScoreResult = struct { node: *parser.Node, score: f32 };
+    pub const ScoreResult = struct {
+        node: *parser.Node,
+        score: f32,
+    };
 
     /// Pre-computed word set for a node. Avoids re-tokenizing content
     /// on every pairwise Jaccard comparison.
@@ -858,7 +861,7 @@ test "Graph: computePageRank" {
 
     const score_a = pr.get("A").?;
     const score_b = pr.get("B").?;
-    
+
     // A should have higher rank than B because everyone links to A
     try std.testing.expect(score_a > score_b);
 }
@@ -895,4 +898,3 @@ test "Graph: detectClusters" {
 
     try std.testing.expectEqual(@as(usize, 2), clusters.len);
 }
-

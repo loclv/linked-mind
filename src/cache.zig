@@ -56,7 +56,7 @@ pub const Cache = struct {
 
             if (file_data != .object) continue;
 
-            const mtime = if (file_data.object.get("mtime")) |m| m.integer else 0;
+            const mtime: i128 = if (file_data.object.get("mtime")) |m| @as(i128, m.integer) else 0;
             const hash_hex = if (file_data.object.get("hash")) |h| h.string else "";
 
             var hash: [32]u8 = undefined;
@@ -244,4 +244,3 @@ test "Cache: save and load round-trip" {
     try std.testing.expectEqualStrings("nature1", entry.node.links.items[0].nature.?);
     try std.testing.expectEqualStrings("value1", entry.node.metadata.get("key1").?);
 }
-
