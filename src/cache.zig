@@ -83,6 +83,7 @@ pub const Cache = struct {
         var node: parser.Node = .{
             .path = try self.allocator.dupe(u8, path),
             .title = try self.allocator.dupe(u8, if (obj.get("title")) |t| t.string else ""),
+            .id = try self.allocator.dupe(u8, if (obj.get("id")) |i| i.string else ""),
             .content = try self.allocator.dupe(u8, if (obj.get("content")) |c| c.string else ""),
             .links = .{},
             .backlinks = .{},
@@ -163,6 +164,8 @@ pub const Cache = struct {
         const node = entry.node;
         try writer.writeAll("\"title\": ");
         try writer.print("{f}, ", .{std.json.fmt(node.title, .{})});
+        try writer.writeAll("\"id\": ");
+        try writer.print("{f}, ", .{std.json.fmt(node.id, .{})});
         try writer.writeAll("\"content\": ");
         try writer.print("{f}, ", .{std.json.fmt(node.content, .{})});
 
@@ -207,6 +210,7 @@ test "Cache: save and load round-trip" {
     var node: parser.Node = .{
         .path = try allocator.dupe(u8, "test.md"),
         .title = try allocator.dupe(u8, "Test Title"),
+        .id = try allocator.dupe(u8, "test-uuid-1234"),
         .content = try allocator.dupe(u8, "Test content"),
         .links = .{},
         .backlinks = .{},
@@ -270,6 +274,7 @@ test "Cache: multiple entries" {
     var node1: parser.Node = .{
         .path = try allocator.dupe(u8, "file1.md"),
         .title = try allocator.dupe(u8, "File One"),
+        .id = try allocator.dupe(u8, "uuid-file1"),
         .content = try allocator.dupe(u8, "Content 1"),
         .links = .{},
         .backlinks = .{},
@@ -291,6 +296,7 @@ test "Cache: multiple entries" {
     var node2: parser.Node = .{
         .path = try allocator.dupe(u8, "file2.md"),
         .title = try allocator.dupe(u8, "File Two"),
+        .id = try allocator.dupe(u8, "uuid-file2"),
         .content = try allocator.dupe(u8, "Content 2"),
         .links = .{},
         .backlinks = .{},
@@ -359,6 +365,7 @@ test "Cache: link with null nature" {
     var node: parser.Node = .{
         .path = try allocator.dupe(u8, "test.md"),
         .title = try allocator.dupe(u8, "Test"),
+        .id = try allocator.dupe(u8, "test-uuid"),
         .content = try allocator.dupe(u8, "Content"),
         .links = .{},
         .backlinks = .{},
@@ -400,6 +407,7 @@ test "Cache: entry with special characters in content" {
     const node: parser.Node = .{
         .path = try allocator.dupe(u8, "special.md"),
         .title = try allocator.dupe(u8, "Title with \"quotes\" and \\backslash"),
+        .id = try allocator.dupe(u8, "special-uuid"),
         .content = try allocator.dupe(u8, "Content\nwith\nnewlines\tand\ttabs"),
         .links = .{},
         .backlinks = .{},

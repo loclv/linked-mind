@@ -505,6 +505,148 @@ pub const Graph = struct {
         return moc.toOwnedSlice(self.allocator);
     }
 
+    /// Generate CSV map of the knowledge graph.
+    /// Format: id,name,tags,summary,problem,solution,action,causeIds,effectIds
+    /// - causeIds: documents that caused this one (backlinks)
+    /// - effectIds: documents this one caused (outgoing links)
+    pub fn generateMapCsv(self: *Graph) ![]const u8 {
+        var csv: std.ArrayList(u8) = .{};
+        defer csv.deinit(self.allocator);
+
+        // Write header
+        try csv.writer(self.allocator).print("id,name,tags,summary,problem,solution,action,causeIds,effectIds\n", .{});
+
+        var node_it = self.nodes.iterator();
+        while (node_it.next()) |entry| {
+            const node = entry.value_ptr;
+
+            // id
+            try csv.writer(self.allocator).print("{s},", .{node.id});
+
+            // name (escape commas if present)
+            try self.writeCsvField(&csv, node.title);
+            try csv.append(self.allocator, ',');
+
+            // tags (comma-separated, wrapped in quotes if multiple)
+            try self.writeCsvTags(&csv, node);
+            try csv.append(self.allocator, ',');
+
+            // summary (from metadata or first line of content)
+            const summary = node.metadata.get("summary") orelse "";
+            try self.writeCsvField(&csv, summary);
+            try csv.append(self.allocator, ',');
+
+            // problem (optional)
+            const problem = node.metadata.get("problem") orelse "";
+            try self.writeCsvField(&csv, problem);
+            try csv.append(self.allocator, ',');
+
+            // solution (optional)
+            const solution = node.metadata.get("solution") orelse "";
+            try self.writeCsvField(&csv, solution);
+            try csv.append(self.allocator, ',');
+
+            // action (optional)
+            const action = node.metadata.get("action") orelse "";
+            try self.writeCsvField(&csv, action);
+            try csv.append(self.allocator, ',');
+
+            // causeIds (backlinks - documents that link TO this node)
+            try self.writeCsvIdList(&csv, node.backlinks.items);
+            try csv.append(self.allocator, ',');
+
+            // effectIds (outgoing links - documents this node links TO)
+            try self.writeCsvLinkIdList(&csv, node.links.items);
+            try csv.append(self.allocator, '\n');
+        }
+
+        return csv.toOwnedSlice(self.allocator);
+    }
+
+    /// Write a CSV field, escaping quotes and wrapping in quotes if contains comma/newline
+    fn writeCsvField(self: *Graph, csv: *std.ArrayList(u8), field: []const u8) !void {
+        const needs_quote = std.mem.indexOf(u8, field, ",") != null or
+            std.mem.indexOf(u8, field, "\"") != null or
+            std.mem.indexOf(u8, field, "\n") != null;
+
+        if (needs_quote) {
+            try csv.append(self.allocator, '"');
+            // Escape internal quotes by doubling them
+            var i: usize = 0;
+            while (i < field.len) : (i += 1) {
+                if (field[i] == '"') {
+                    try csv.append(self.allocator, '"');
+                    try csv.append(self.allocator, '"');
+                } else {
+                    try csv.append(self.allocator, field[i]);
+                }
+            }
+            try csv.append(self.allocator, '"');
+        } else {
+            try csv.appendSlice(self.allocator, field);
+        }
+    }
+
+    /// Write tags as comma-separated list, wrapped in quotes if multiple
+    fn writeCsvTags(self: *Graph, csv: *std.ArrayList(u8), node: *const parser.Node) !void {
+        if (node.tags.items.len == 0) {
+            return;
+        } else if (node.tags.items.len == 1) {
+            try csv.appendSlice(self.allocator, node.tags.items[0]);
+        } else {
+            try csv.append(self.allocator, '"');
+            for (node.tags.items, 0..) |tag, i| {
+                if (i > 0) try csv.append(self.allocator, ',');
+                try csv.appendSlice(self.allocator, tag);
+            }
+            try csv.append(self.allocator, '"');
+        }
+    }
+
+    /// Write list of titles as UUID list (look up IDs from titles)
+    fn writeCsvIdList(self: *Graph, csv: *std.ArrayList(u8), titles: []const []const u8) !void {
+        if (titles.len == 0) return;
+
+        if (titles.len == 1) {
+            if (self.findNodeByTitle(titles[0])) |node| {
+                try csv.appendSlice(self.allocator, node.id);
+            }
+        } else {
+            try csv.append(self.allocator, '"');
+            var first = true;
+            for (titles) |title| {
+                if (self.findNodeByTitle(title)) |node| {
+                    if (!first) try csv.append(self.allocator, ',');
+                    first = false;
+                    try csv.appendSlice(self.allocator, node.id);
+                }
+            }
+            try csv.append(self.allocator, '"');
+        }
+    }
+
+    /// Write list of Link targets as UUID list
+    fn writeCsvLinkIdList(self: *Graph, csv: *std.ArrayList(u8), links: []const parser.Link) !void {
+        if (links.len == 0) return;
+
+        if (links.len == 1) {
+            if (self.findNodeByTitle(links[0].target)) |node| {
+                try csv.appendSlice(self.allocator, node.id);
+            }
+        } else {
+            try csv.append(self.allocator, '"');
+            var first = true;
+            for (links) |link| {
+                if (self.findNodeByTitle(link.target)) |node| {
+                    if (!first) try csv.append(self.allocator, ',');
+                    first = false;
+                    try csv.appendSlice(self.allocator, node.id);
+                }
+            }
+            try csv.append(self.allocator, '"');
+        }
+    }
+
     pub fn findSimilarNodes(self: *Graph, target_title: []const u8, limit: usize) ![]ScoreResult {
         const target_node = self.findNodeByTitle(target_title) orelse return error.NodeNotFound;
 
@@ -759,6 +901,7 @@ test "Graph: basic operations and backlink resolution" {
     var node1: parser.Node = .{
         .path = try allocator.dupe(u8, "a.md"),
         .title = try allocator.dupe(u8, "A"),
+        .id = try allocator.dupe(u8, "uuid-a"),
         .content = try allocator.dupe(u8, "Links to [[B]]"),
         .links = .{},
         .backlinks = .{},
@@ -770,6 +913,7 @@ test "Graph: basic operations and backlink resolution" {
     const node2: parser.Node = .{
         .path = try allocator.dupe(u8, "b.md"),
         .title = try allocator.dupe(u8, "B"),
+        .id = try allocator.dupe(u8, "uuid-b"),
         .content = try allocator.dupe(u8, "No links"),
         .links = .{},
         .backlinks = .{},
@@ -799,16 +943,18 @@ test "Graph: findShortestPath" {
     const titles = [_][]const u8{ "A", "B", "C", "D", "E" };
     for (titles) |title| {
         const path = try std.fmt.allocPrint(allocator, "{s}.md", .{title});
-        defer allocator.free(path);
+        const id = try std.fmt.allocPrint(allocator, "uuid-{s}", .{title});
         try graph.addNode(.{
             .path = try allocator.dupe(u8, path),
             .title = try allocator.dupe(u8, title),
+            .id = id,
             .content = try allocator.dupe(u8, ""),
             .links = .{},
             .backlinks = .{},
             .tags = .{},
             .metadata = std.StringHashMap([]const u8).init(allocator),
         });
+        allocator.free(path);
     }
 
     try graph.findNodeByTitle("A").?.links.append(allocator, .{ .target = try allocator.dupe(u8, "B"), .nature = null });
@@ -842,6 +988,7 @@ test "Graph: computePageRank" {
         try graph.addNode(.{
             .path = try allocator.dupe(u8, title),
             .title = try allocator.dupe(u8, title),
+            .id = try std.fmt.allocPrint(allocator, "uuid-{s}", .{title}),
             .content = try allocator.dupe(u8, ""),
             .links = .{},
             .backlinks = .{},
@@ -877,6 +1024,7 @@ test "Graph: detectClusters" {
         try graph.addNode(.{
             .path = try allocator.dupe(u8, title),
             .title = try allocator.dupe(u8, title),
+            .id = try std.fmt.allocPrint(allocator, "uuid-{s}", .{title}),
             .content = try allocator.dupe(u8, ""),
             .links = .{},
             .backlinks = .{},
@@ -907,6 +1055,7 @@ test "Graph: getContext with metadata and tags" {
     var node: parser.Node = .{
         .path = try allocator.dupe(u8, "test.md"),
         .title = try allocator.dupe(u8, "Test Note"),
+        .id = try allocator.dupe(u8, "uuid-test"),
         .content = try allocator.dupe(u8, "Content here"),
         .links = .{},
         .backlinks = .{},
@@ -946,6 +1095,7 @@ test "Graph: findSimilarNodes with similar content" {
     try graph.addNode(.{
         .path = try allocator.dupe(u8, "a.md"),
         .title = try allocator.dupe(u8, "A"),
+        .id = try allocator.dupe(u8, "uuid-a"),
         .content = try allocator.dupe(u8, "programming software development code"),
         .links = .{},
         .backlinks = .{},
@@ -956,6 +1106,7 @@ test "Graph: findSimilarNodes with similar content" {
     try graph.addNode(.{
         .path = try allocator.dupe(u8, "b.md"),
         .title = try allocator.dupe(u8, "B"),
+        .id = try allocator.dupe(u8, "uuid-b"),
         .content = try allocator.dupe(u8, "programming software engineering code"),
         .links = .{},
         .backlinks = .{},
@@ -966,6 +1117,7 @@ test "Graph: findSimilarNodes with similar content" {
     try graph.addNode(.{
         .path = try allocator.dupe(u8, "c.md"),
         .title = try allocator.dupe(u8, "C"),
+        .id = try allocator.dupe(u8, "uuid-c"),
         .content = try allocator.dupe(u8, "cooking recipes food kitchen"),
         .links = .{},
         .backlinks = .{},
@@ -1000,6 +1152,7 @@ test "Graph: suggestLinks finds unlinked similar nodes" {
     try graph.addNode(.{
         .path = try allocator.dupe(u8, "a.md"),
         .title = try allocator.dupe(u8, "A"),
+        .id = try allocator.dupe(u8, "uuid-a"),
         .content = try allocator.dupe(u8, "machine learning artificial intelligence algorithms"),
         .links = .{},
         .backlinks = .{},
@@ -1010,6 +1163,7 @@ test "Graph: suggestLinks finds unlinked similar nodes" {
     try graph.addNode(.{
         .path = try allocator.dupe(u8, "b.md"),
         .title = try allocator.dupe(u8, "B"),
+        .id = try allocator.dupe(u8, "uuid-b"),
         .content = try allocator.dupe(u8, "machine learning artificial intelligence neural networks"),
         .links = .{},
         .backlinks = .{},
@@ -1032,6 +1186,7 @@ test "Graph: suggestLinks excludes already linked nodes" {
     var node_a: parser.Node = .{
         .path = try allocator.dupe(u8, "a.md"),
         .title = try allocator.dupe(u8, "A"),
+        .id = try allocator.dupe(u8, "uuid-a"),
         .content = try allocator.dupe(u8, "machine learning artificial intelligence"),
         .links = .{},
         .backlinks = .{},
@@ -1044,6 +1199,7 @@ test "Graph: suggestLinks excludes already linked nodes" {
     try graph.addNode(.{
         .path = try allocator.dupe(u8, "b.md"),
         .title = try allocator.dupe(u8, "B"),
+        .id = try allocator.dupe(u8, "uuid-b"),
         .content = try allocator.dupe(u8, "machine learning artificial intelligence"),
         .links = .{},
         .backlinks = .{},
@@ -1070,6 +1226,7 @@ test "Graph: generateMoc creates map of content" {
     try graph.addNode(.{
         .path = try allocator.dupe(u8, "a.md"),
         .title = try allocator.dupe(u8, "A"),
+        .id = try allocator.dupe(u8, "uuid-a"),
         .content = try allocator.dupe(u8, ""),
         .links = .{},
         .backlinks = .{},
@@ -1080,6 +1237,7 @@ test "Graph: generateMoc creates map of content" {
     var node_b: parser.Node = .{
         .path = try allocator.dupe(u8, "b.md"),
         .title = try allocator.dupe(u8, "B"),
+        .id = try allocator.dupe(u8, "uuid-b"),
         .content = try allocator.dupe(u8, ""),
         .links = .{},
         .backlinks = .{},
@@ -1109,6 +1267,7 @@ test "Graph: detectLouvainCommunities groups connected nodes" {
         try graph.addNode(.{
             .path = try allocator.dupe(u8, title),
             .title = try allocator.dupe(u8, title),
+            .id = try std.fmt.allocPrint(allocator, "uuid-{s}", .{title}),
             .content = try allocator.dupe(u8, ""),
             .links = .{},
             .backlinks = .{},
@@ -1141,6 +1300,7 @@ test "Graph: exportGraphJson produces valid JSON" {
     var node_a: parser.Node = .{
         .path = try allocator.dupe(u8, "a.md"),
         .title = try allocator.dupe(u8, "A"),
+        .id = try allocator.dupe(u8, "uuid-a"),
         .content = try allocator.dupe(u8, ""),
         .links = .{},
         .backlinks = .{},
@@ -1153,6 +1313,7 @@ test "Graph: exportGraphJson produces valid JSON" {
     try graph.addNode(.{
         .path = try allocator.dupe(u8, "b.md"),
         .title = try allocator.dupe(u8, "B"),
+        .id = try allocator.dupe(u8, "uuid-b"),
         .content = try allocator.dupe(u8, ""),
         .links = .{},
         .backlinks = .{},
@@ -1180,6 +1341,7 @@ test "Graph: getGcReport identifies orphans and islands" {
     try graph.addNode(.{
         .path = try allocator.dupe(u8, "orphan.md"),
         .title = try allocator.dupe(u8, "Orphan"),
+        .id = try allocator.dupe(u8, "uuid-orphan"),
         .content = try allocator.dupe(u8, ""),
         .links = .{},
         .backlinks = .{},
@@ -1191,6 +1353,7 @@ test "Graph: getGcReport identifies orphans and islands" {
     var island_a: parser.Node = .{
         .path = try allocator.dupe(u8, "island_a.md"),
         .title = try allocator.dupe(u8, "IslandA"),
+        .id = try allocator.dupe(u8, "uuid-island-a"),
         .content = try allocator.dupe(u8, ""),
         .links = .{},
         .backlinks = .{},
@@ -1203,6 +1366,7 @@ test "Graph: getGcReport identifies orphans and islands" {
     try graph.addNode(.{
         .path = try allocator.dupe(u8, "island_b.md"),
         .title = try allocator.dupe(u8, "IslandB"),
+        .id = try allocator.dupe(u8, "uuid-island-b"),
         .content = try allocator.dupe(u8, ""),
         .links = .{},
         .backlinks = .{},
@@ -1247,6 +1411,7 @@ test "Graph: single node graph" {
     try graph.addNode(.{
         .path = try allocator.dupe(u8, "solo.md"),
         .title = try allocator.dupe(u8, "Solo"),
+        .id = try allocator.dupe(u8, "uuid-solo"),
         .content = try allocator.dupe(u8, "content"),
         .links = .{},
         .backlinks = .{},
@@ -1284,6 +1449,7 @@ test "Graph: circular reference handling" {
         try graph.addNode(.{
             .path = try allocator.dupe(u8, title),
             .title = try allocator.dupe(u8, title),
+            .id = try std.fmt.allocPrint(allocator, "uuid-{s}", .{title}),
             .content = try allocator.dupe(u8, ""),
             .links = .{},
             .backlinks = .{},
@@ -1323,6 +1489,7 @@ test "Graph: findShortestPath with link nature" {
     var node_a: parser.Node = .{
         .path = try allocator.dupe(u8, "a.md"),
         .title = try allocator.dupe(u8, "A"),
+        .id = try allocator.dupe(u8, "uuid-a"),
         .content = try allocator.dupe(u8, ""),
         .links = .{},
         .backlinks = .{},
@@ -1335,6 +1502,7 @@ test "Graph: findShortestPath with link nature" {
     try graph.addNode(.{
         .path = try allocator.dupe(u8, "b.md"),
         .title = try allocator.dupe(u8, "B"),
+        .id = try allocator.dupe(u8, "uuid-b"),
         .content = try allocator.dupe(u8, ""),
         .links = .{},
         .backlinks = .{},
@@ -1361,6 +1529,7 @@ test "Graph: resolveBacklinks with .md extension stripping" {
     const node_a: parser.Node = .{
         .path = try allocator.dupe(u8, "a.md"),
         .title = try allocator.dupe(u8, "target.md"), // Title has .md
+        .id = try allocator.dupe(u8, "uuid-target"),
         .content = try allocator.dupe(u8, ""),
         .links = .{},
         .backlinks = .{},
@@ -1372,6 +1541,7 @@ test "Graph: resolveBacklinks with .md extension stripping" {
     var node_b: parser.Node = .{
         .path = try allocator.dupe(u8, "b.md"),
         .title = try allocator.dupe(u8, "B"),
+        .id = try allocator.dupe(u8, "uuid-b"),
         .content = try allocator.dupe(u8, ""),
         .links = .{},
         .backlinks = .{},

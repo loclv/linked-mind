@@ -180,11 +180,11 @@ pub fn main() !void {
             std.debug.print("No path found between '{s}' and '{s}'.\n", .{ start, end });
         }
     } else if (std.mem.eql(u8, mode, "clusters")) {
-        const moc = try kb_graph.generateMoc();
-        defer allocator.free(moc);
+        const csv = try kb_graph.generateMapCsv();
+        defer allocator.free(csv);
 
-        try std.fs.cwd().writeFile(.{ .sub_path = "MOC.md", .data = moc });
-        std.debug.print("Map of Content written to MOC.md\nClusters detected and grouped.\n", .{});
+        try std.fs.cwd().writeFile(.{ .sub_path = "map.csv", .data = csv });
+        std.debug.print("Knowledge graph map written to map.csv\n", .{});
     } else if (std.mem.eql(u8, mode, "gc")) {
         var threshold: usize = 3;
         var arg_j: usize = 3;

@@ -34,6 +34,8 @@ pub const Node = struct {
     path: []const u8,
     /// Display title (currently basename of path, could be enhanced to use first H1)
     title: []const u8,
+    /// UUID v4 for unique identification (36 chars: 8-4-4-4-12 format)
+    id: []const u8,
     /// Raw markdown content (includes frontmatter)
     content: []const u8,
     /// Outgoing wikilinks found in content
@@ -55,6 +57,7 @@ pub const Node = struct {
         var new_node: Node = .{
             .path = try allocator.dupe(u8, self.path),
             .title = try allocator.dupe(u8, self.title),
+            .id = try allocator.dupe(u8, self.id),
             .content = try allocator.dupe(u8, self.content),
             .links = try self.links.clone(allocator),
             .backlinks = try self.backlinks.clone(allocator),
@@ -100,6 +103,7 @@ pub const Node = struct {
     pub fn deinit(self: *Node, allocator: std.mem.Allocator) void {
         allocator.free(self.path);
         allocator.free(self.title);
+        allocator.free(self.id);
         allocator.free(self.content);
         // Free link strings before ArrayList
         for (self.links.items) |link| {
@@ -140,6 +144,33 @@ pub const Parser = struct {
         return .{ .allocator = allocator };
     }
 
+    /// Generate a UUID v4 string (36 chars: 8-4-4-4-12 format)
+    /// Uses crypto-secure random bytes for uniqueness
+    fn generateUuid(self: *Parser) ![]const u8 {
+        var uuid_bytes: [16]u8 = undefined;
+        std.crypto.random.bytes(&uuid_bytes);
+
+        // Set version (4) and variant bits per RFC 4122
+        uuid_bytes[6] = (uuid_bytes[6] & 0x0f) | 0x40; // version 4
+        uuid_bytes[8] = (uuid_bytes[8] & 0x3f) | 0x80; // variant 1
+
+        // Format: 8-4-4-4-12 (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)
+        var buf: std.ArrayList(u8) = .{};
+        defer buf.deinit(self.allocator);
+
+        const hex_chars = "0123456789abcdef";
+        var i: usize = 0;
+        while (i < 16) : (i += 1) {
+            try buf.append(self.allocator, hex_chars[uuid_bytes[i] >> 4]);
+            try buf.append(self.allocator, hex_chars[uuid_bytes[i] & 0x0f]);
+            if (i == 3 or i == 5 or i == 7 or i == 9) {
+                try buf.append(self.allocator, '-');
+            }
+        }
+
+        return buf.toOwnedSlice(self.allocator);
+    }
+
     /// Parses a markdown file from disk.
     ///
     /// 1MB limit prevents memory exhaustion from accidentally parsing binary files
@@ -170,6 +201,7 @@ pub const Parser = struct {
         var node: Node = .{
             .path = try self.allocator.dupe(u8, path),
             .title = try self.allocator.dupe(u8, std.fs.path.basename(path)),
+            .id = try self.generateUuid(),
             .content = try self.allocator.dupe(u8, content),
             .links = .{},
             .backlinks = .{},
