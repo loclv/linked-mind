@@ -1,6 +1,6 @@
-id,name,tags,summary,problem,solution,action,causeIds,effectIds
-d1e15b8d-fca1-4f43-a6ac-fe2679bedfdb,third.md,advanced,,,,,910e1a04-58d4-42db-b81f-c1db2eec072e,"ac227e9a-4403-4b16-afd6-614324ce8ee9,910e1a04-58d4-42db-b81f-c1db2eec072e"
-5f56a058-7cc7-47d9-8b00-fdabd9eab009,typed_test.md,tag-one,,,,,,"910e1a04-58d4-42db-b81f-c1db2eec072e,b1ab29ff-8137-44fb-bd9a-3b667a19cbfe"
-ac227e9a-4403-4b16-afd6-614324ce8ee9,first.md,,,,,,d1e15b8d-fca1-4f43-a6ac-fe2679bedfdb,
-b1ab29ff-8137-44fb-bd9a-3b667a19cbfe,second.md,,,,,,5f56a058-7cc7-47d9-8b00-fdabd9eab009,
-910e1a04-58d4-42db-b81f-c1db2eec072e,meta_test.md,,,,,,"d1e15b8d-fca1-4f43-a6ac-fe2679bedfdb,5f56a058-7cc7-47d9-8b00-fdabd9eab009",d1e15b8d-fca1-4f43-a6ac-fe2679bedfdb
+id,name,tags,summary,problem,solution,action,causeIds,effectIds,nextPartOfIds,previousPartOfIds
+d1e15b8d-fca1-4f43-a6ac-fe2679bedfdb,third.md,advanced,,,,,910e1a04-58d4-42db-b81f-c1db2eec072e,"ac227e9a-4403-4b16-afd6-614324ce8ee9,910e1a04-58d4-42db-b81f-c1db2eec072e",,
+5f56a058-7cc7-47d9-8b00-fdabd9eab009,typed_test.md,tag-one,,,,,,"910e1a04-58d4-42db-b81f-c1db2eec072e,b1ab29ff-8137-44fb-bd9a-3b667a19cbfe",,
+ac227e9a-4403-4b16-afd6-614324ce8ee9,first.md,,,,,,d1e15b8d-fca1-4f43-a6ac-fe2679bedfdb,,,
+b1ab29ff-8137-44fb-bd9a-3b667a19cbfe,second.md,,,,,,5f56a058-7cc7-47d9-8b00-fdabd9eab009,,,
+910e1a04-58d4-42db-b81f-c1db2eec072e,meta_test.md,,,,,,"d1e15b8d-fca1-4f43-a6ac-fe2679bedfdb,5f56a058-7cc7-47d9-8b00-fdabd9eab009",d1e15b8d-fca1-4f43-a6ac-fe2679bedfdb,,

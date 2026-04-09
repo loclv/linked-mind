@@ -506,15 +506,17 @@ pub const Graph = struct {
     }
 
     /// Generate CSV map of the knowledge graph.
-    /// Format: id,name,tags,summary,problem,solution,action,causeIds,effectIds
+    /// Format: id,name,tags,summary,problem,solution,action,causeIds,effectIds,nextPartOfIds,previousPartOfIds
     /// - causeIds: documents that caused this one (backlinks)
     /// - effectIds: documents this one caused (outgoing links)
+    /// - nextPartOfIds: next part/continuation documents (from metadata)
+    /// - previousPartOfIds: previous part documents (from metadata)
     pub fn generateMapCsv(self: *Graph) ![]const u8 {
         var csv: std.ArrayList(u8) = .{};
         defer csv.deinit(self.allocator);
 
         // Write header
-        try csv.writer(self.allocator).print("id,name,tags,summary,problem,solution,action,causeIds,effectIds\n", .{});
+        try csv.writer(self.allocator).print("id,name,tags,summary,problem,solution,action,causeIds,effectIds,nextPartOfIds,previousPartOfIds\n", .{});
 
         var node_it = self.nodes.iterator();
         while (node_it.next()) |entry| {
@@ -557,10 +559,49 @@ pub const Graph = struct {
 
             // effectIds (outgoing links - documents this node links TO)
             try self.writeCsvLinkIdList(&csv, node.links.items);
+            try csv.append(self.allocator, ',');
+
+            // nextPartOfIds (from metadata - single title or comma-separated)
+            const next_part = node.metadata.get("nextPartOf") orelse "";
+            try self.writeCsvTitleToId(&csv, next_part);
+            try csv.append(self.allocator, ',');
+
+            // previousPartOfIds (from metadata - single title or comma-separated)
+            const prev_part = node.metadata.get("previousPartOf") orelse "";
+            try self.writeCsvTitleToId(&csv, prev_part);
             try csv.append(self.allocator, '\n');
         }
 
         return csv.toOwnedSlice(self.allocator);
+    }
+
+    /// Write a title string to ID lookup (handles single or comma-separated titles)
+    fn writeCsvTitleToId(self: *Graph, csv: *std.ArrayList(u8), titles_str: []const u8) !void {
+        if (titles_str.len == 0) return;
+
+        // Check if comma-separated (wrapped in quotes or not)
+        const has_comma = std.mem.indexOf(u8, titles_str, ",") != null;
+
+        if (!has_comma) {
+            // Single title
+            if (self.findNodeByTitle(titles_str)) |node| {
+                try csv.appendSlice(self.allocator, node.id);
+            }
+        } else {
+            // Multiple titles - parse and look up each
+            try csv.append(self.allocator, '"');
+            var first = true;
+            var it = std.mem.tokenizeAny(u8, titles_str, ",");
+            while (it.next()) |title| {
+                const trimmed = std.mem.trim(u8, title, " \"");
+                if (self.findNodeByTitle(trimmed)) |node| {
+                    if (!first) try csv.append(self.allocator, ',');
+                    first = false;
+                    try csv.appendSlice(self.allocator, node.id);
+                }
+            }
+            try csv.append(self.allocator, '"');
+        }
     }
 
     /// Write a CSV field, escaping quotes and wrapping in quotes if contains comma/newline
@@ -1254,6 +1295,63 @@ test "Graph: generateMoc creates map of content" {
 
     try std.testing.expect(std.mem.indexOf(u8, moc, "Map of Content") != null);
     try std.testing.expect(std.mem.indexOf(u8, moc, "Community") != null);
+}
+
+test "Graph: generateMapCsv creates CSV with all fields" {
+    const allocator = std.testing.allocator;
+    var graph = Graph.init(allocator);
+    defer graph.deinit();
+
+    // Node A with metadata and tags
+    var node_a: parser.Node = .{
+        .path = try allocator.dupe(u8, "a.md"),
+        .title = try allocator.dupe(u8, "A"),
+        .id = try allocator.dupe(u8, "uuid-a"),
+        .content = try allocator.dupe(u8, "Content A"),
+        .links = .{},
+        .backlinks = .{},
+        .tags = .{},
+        .metadata = std.StringHashMap([]const u8).init(allocator),
+    };
+    try node_a.metadata.put(try allocator.dupe(u8, "summary"), try allocator.dupe(u8, "Summary A"));
+    try node_a.metadata.put(try allocator.dupe(u8, "problem"), try allocator.dupe(u8, "Problem A"));
+    try node_a.metadata.put(try allocator.dupe(u8, "solution"), try allocator.dupe(u8, "Solution A"));
+    try node_a.metadata.put(try allocator.dupe(u8, "action"), try allocator.dupe(u8, "Action A"));
+    try node_a.metadata.put(try allocator.dupe(u8, "nextPartOf"), try allocator.dupe(u8, "B"));
+    try node_a.tags.append(allocator, try allocator.dupe(u8, "tag1"));
+    try node_a.tags.append(allocator, try allocator.dupe(u8, "tag2"));
+    try node_a.links.append(allocator, .{ .target = try allocator.dupe(u8, "B"), .nature = null });
+    try graph.addNode(node_a);
+
+    // Node B with previousPartOf
+    var node_b: parser.Node = .{
+        .path = try allocator.dupe(u8, "b.md"),
+        .title = try allocator.dupe(u8, "B"),
+        .id = try allocator.dupe(u8, "uuid-b"),
+        .content = try allocator.dupe(u8, "Content B"),
+        .links = .{},
+        .backlinks = .{},
+        .tags = .{},
+        .metadata = std.StringHashMap([]const u8).init(allocator),
+    };
+    try node_b.metadata.put(try allocator.dupe(u8, "summary"), try allocator.dupe(u8, "Summary B"));
+    try node_b.metadata.put(try allocator.dupe(u8, "previousPartOf"), try allocator.dupe(u8, "A"));
+    try node_b.tags.append(allocator, try allocator.dupe(u8, "tag3"));
+    try graph.addNode(node_b);
+
+    try graph.resolveBacklinks();
+
+    const csv = try graph.generateMapCsv();
+    defer allocator.free(csv);
+
+    // Verify header
+    try std.testing.expect(std.mem.indexOf(u8, csv, "id,name,tags,summary,problem,solution,action,causeIds,effectIds,nextPartOfIds,previousPartOfIds") != null);
+
+    // Verify node A row
+    try std.testing.expect(std.mem.indexOf(u8, csv, "uuid-a,A,\"tag1,tag2\",Summary A,Problem A,Solution A,Action A,,uuid-b,uuid-b,") != null);
+
+    // Verify node B row with backlink and previousPartOfIds
+    try std.testing.expect(std.mem.indexOf(u8, csv, "uuid-b,B,tag3,Summary B,,,,uuid-a,,,uuid-a") != null);
 }
 
 test "Graph: detectLouvainCommunities groups connected nodes" {
