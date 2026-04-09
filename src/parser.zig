@@ -285,3 +285,274 @@ test "Parser: complex combination" {
     try std.testing.expectEqualStrings("tag", node.tags.items[1]);
     try std.testing.expectEqualStrings("end", node.tags.items[2]);
 }
+
+test "Parser: empty content" {
+    const allocator = std.testing.allocator;
+    var parser = Parser.init(allocator);
+
+    var node = try parser.parseContent("empty.md", "");
+    defer node.deinit(allocator);
+
+    try std.testing.expectEqualStrings("empty.md", node.path);
+    try std.testing.expectEqual(@as(usize, 0), node.links.items.len);
+    try std.testing.expectEqual(@as(usize, 0), node.tags.items.len);
+    try std.testing.expectEqual(@as(u32, 0), node.metadata.count());
+}
+
+test "Parser: multiple wikilinks same line" {
+    const allocator = std.testing.allocator;
+    var parser = Parser.init(allocator);
+
+    const content = "See [[A]], [[B]], and [[C]] all here.";
+    var node = try parser.parseContent("test.md", content);
+    defer node.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 3), node.links.items.len);
+    try std.testing.expectEqualStrings("A", node.links.items[0].target);
+    try std.testing.expectEqualStrings("B", node.links.items[1].target);
+    try std.testing.expectEqualStrings("C", node.links.items[2].target);
+}
+
+test "Parser: wikilink with spaces in target" {
+    const allocator = std.testing.allocator;
+    var parser = Parser.init(allocator);
+
+    const content = "Link to [[My File Name]] and [[type::Some Target]]";
+    var node = try parser.parseContent("test.md", content);
+    defer node.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 2), node.links.items.len);
+    try std.testing.expectEqualStrings("My File Name", node.links.items[0].target);
+    try std.testing.expectEqualStrings("Some Target", node.links.items[1].target);
+    try std.testing.expectEqualStrings("type", node.links.items[1].nature.?);
+}
+
+test "Parser: frontmatter with colons in value" {
+    const allocator = std.testing.allocator;
+    var parser = Parser.init(allocator);
+
+    // Note: Parser splits on first ":", so values with colons are truncated
+    // This test documents current behavior (limitation)
+    const content =
+        \\---
+        \\url: https://example.com
+        \\simple: value
+        \\---
+        \\Content
+    ;
+    var node = try parser.parseContent("test.md", content);
+    defer node.deinit(allocator);
+
+    // URL gets split at first colon - known limitation
+    try std.testing.expectEqualStrings("https", node.metadata.get("url").?);
+    try std.testing.expectEqualStrings("value", node.metadata.get("simple").?);
+}
+
+test "Parser: frontmatter with empty value" {
+    const allocator = std.testing.allocator;
+    var parser = Parser.init(allocator);
+
+    const content =
+        \\---
+        \\empty:
+        \\filled: value
+        \\---
+        \\Content
+    ;
+    var node = try parser.parseContent("test.md", content);
+    defer node.deinit(allocator);
+
+    try std.testing.expectEqualStrings("", node.metadata.get("empty").?);
+    try std.testing.expectEqualStrings("value", node.metadata.get("filled").?);
+}
+
+test "Parser: tags with special characters" {
+    const allocator = std.testing.allocator;
+    var parser = Parser.init(allocator);
+
+    const content = "Tags: #tag_name #tag-name #tag123 #TAG_UPPER";
+    var node = try parser.parseContent("test.md", content);
+    defer node.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 4), node.tags.items.len);
+    try std.testing.expectEqualStrings("tag_name", node.tags.items[0]);
+    try std.testing.expectEqualStrings("tag-name", node.tags.items[1]);
+    try std.testing.expectEqualStrings("tag123", node.tags.items[2]);
+    try std.testing.expectEqualStrings("TAG_UPPER", node.tags.items[3]);
+}
+
+test "Parser: tag at line boundaries" {
+    const allocator = std.testing.allocator;
+    var parser = Parser.init(allocator);
+
+    const content =
+        \\#first
+        \\text #middle text
+        \\#last
+    ;
+    var node = try parser.parseContent("test.md", content);
+    defer node.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 3), node.tags.items.len);
+    try std.testing.expectEqualStrings("first", node.tags.items[0]);
+    try std.testing.expectEqualStrings("middle", node.tags.items[1]);
+    try std.testing.expectEqualStrings("last", node.tags.items[2]);
+}
+
+test "Parser: unclosed wikilink ignored" {
+    const allocator = std.testing.allocator;
+    var parser = Parser.init(allocator);
+
+    const content = "This [[unclosed link should be ignored";
+    var node = try parser.parseContent("test.md", content);
+    defer node.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 0), node.links.items.len);
+}
+
+test "Parser: nested brackets in wikilink" {
+    const allocator = std.testing.allocator;
+    var parser = Parser.init(allocator);
+
+    // Note: Parser finds first "]]" - doesn't handle nested brackets
+    // This test documents current behavior (limitation)
+    const content = "Link [[File [with brackets]]] here";
+    var node = try parser.parseContent("test.md", content);
+    defer node.deinit(allocator);
+
+    // Parser stops at first "]]", so target is "File [with brackets" (missing final ])
+    try std.testing.expectEqual(@as(usize, 1), node.links.items.len);
+    try std.testing.expectEqualStrings("File [with brackets", node.links.items[0].target);
+}
+
+test "Parser: Node.clone deep copies all fields" {
+    const allocator = std.testing.allocator;
+    var parser = Parser.init(allocator);
+
+    const content = "Link [[Target]] with #tag";
+    var original = try parser.parseContent("original.md", content);
+    // Don't defer deinit yet - we need to test clone independence
+
+    // Add backlink manually
+    try original.backlinks.append(allocator, try allocator.dupe(u8, "backlink_source"));
+
+    var cloned = try original.clone(allocator);
+
+    // Deinit original BEFORE checking clone (tests deep copy independence)
+    original.deinit(allocator);
+
+    // Verify clone has same data
+    try std.testing.expectEqualStrings("original.md", cloned.path);
+    try std.testing.expectEqual(@as(usize, 1), cloned.links.items.len);
+    try std.testing.expectEqual(@as(usize, 1), cloned.backlinks.items.len);
+    try std.testing.expectEqual(@as(usize, 1), cloned.tags.items.len);
+
+    cloned.deinit(allocator);
+}
+
+test "Parser: wikilink with multiple colons" {
+    const allocator = std.testing.allocator;
+    var parser = Parser.init(allocator);
+
+    const content = "Link [[nature::type::Target]] here";
+    var node = try parser.parseContent("test.md", content);
+    defer node.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 1), node.links.items.len);
+    // First :: separates nature from target
+    try std.testing.expectEqualStrings("nature", node.links.items[0].nature.?);
+    try std.testing.expectEqualStrings("type::Target", node.links.items[0].target);
+}
+
+test "Parser: only frontmatter no content" {
+    const allocator = std.testing.allocator;
+    var parser = Parser.init(allocator);
+
+    const content =
+        \\---
+        \\key: value
+        \\---
+    ;
+    var node = try parser.parseContent("test.md", content);
+    defer node.deinit(allocator);
+
+    try std.testing.expectEqual(@as(u32, 1), node.metadata.count());
+    try std.testing.expectEqualStrings("value", node.metadata.get("key").?);
+    try std.testing.expectEqual(@as(usize, 0), node.links.items.len);
+}
+
+test "Parser: incomplete frontmatter ignored" {
+    const allocator = std.testing.allocator;
+    var parser = Parser.init(allocator);
+
+    const content =
+        \\---
+        \\key: value
+        \\No closing separator
+    ;
+    var node = try parser.parseContent("test.md", content);
+    defer node.deinit(allocator);
+
+    // No frontmatter should be parsed (missing closing ---)
+    try std.testing.expectEqual(@as(u32, 0), node.metadata.count());
+}
+
+test "Parser: tag followed by punctuation" {
+    const allocator = std.testing.allocator;
+    var parser = Parser.init(allocator);
+
+    const content = "This is #important, and #urgent.";
+    var node = try parser.parseContent("test.md", content);
+    defer node.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 2), node.tags.items.len);
+    try std.testing.expectEqualStrings("important", node.tags.items[0]);
+    try std.testing.expectEqualStrings("urgent", node.tags.items[1]);
+}
+
+test "Parser: multiple frontmatter keys with spaces" {
+    const allocator = std.testing.allocator;
+    var parser = Parser.init(allocator);
+
+    const content =
+        \\---
+        \\  key1  :  value1
+        \\key2:value2
+        \\---
+        \\Content
+    ;
+    var node = try parser.parseContent("test.md", content);
+    defer node.deinit(allocator);
+
+    try std.testing.expectEqual(@as(u32, 2), node.metadata.count());
+    try std.testing.expectEqualStrings("value1", node.metadata.get("key1").?);
+    try std.testing.expectEqualStrings("value2", node.metadata.get("key2").?);
+}
+
+test "Parser: consecutive tags" {
+    const allocator = std.testing.allocator;
+    var parser = Parser.init(allocator);
+
+    const content = "#a #b #c";
+    var node = try parser.parseContent("test.md", content);
+    defer node.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 3), node.tags.items.len);
+    try std.testing.expectEqualStrings("a", node.tags.items[0]);
+    try std.testing.expectEqualStrings("b", node.tags.items[1]);
+    try std.testing.expectEqualStrings("c", node.tags.items[2]);
+}
+
+test "Parser: wikilink with trimmed whitespace" {
+    const allocator = std.testing.allocator;
+    var parser = Parser.init(allocator);
+
+    const content = "Link [[  spaced target  ]] and [[  nature  ::  target  ]]";
+    var node = try parser.parseContent("test.md", content);
+    defer node.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 2), node.links.items.len);
+    try std.testing.expectEqualStrings("spaced target", node.links.items[0].target);
+    try std.testing.expectEqualStrings("nature", node.links.items[1].nature.?);
+    try std.testing.expectEqualStrings("target", node.links.items[1].target);
+}
