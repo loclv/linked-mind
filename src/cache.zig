@@ -244,3 +244,188 @@ test "Cache: save and load round-trip" {
     try std.testing.expectEqualStrings("nature1", entry.node.links.items[0].nature.?);
     try std.testing.expectEqualStrings("value1", entry.node.metadata.get("key1").?);
 }
+
+test "Cache: empty cache save and load" {
+    const allocator = std.testing.allocator;
+    var cache = Cache.init(allocator);
+    defer cache.deinit();
+
+    const cache_path = "test_empty_cache.json";
+    try cache.save(cache_path);
+    defer std.fs.cwd().deleteFile(cache_path) catch {};
+
+    var new_cache = Cache.init(allocator);
+    defer new_cache.deinit();
+
+    try new_cache.load(cache_path);
+    try std.testing.expectEqual(@as(u32, 0), new_cache.entries.count());
+}
+
+test "Cache: multiple entries" {
+    const allocator = std.testing.allocator;
+    var cache = Cache.init(allocator);
+    defer cache.deinit();
+
+    // First entry
+    var node1: parser.Node = .{
+        .path = try allocator.dupe(u8, "file1.md"),
+        .title = try allocator.dupe(u8, "File One"),
+        .content = try allocator.dupe(u8, "Content 1"),
+        .links = .{},
+        .backlinks = .{},
+        .tags = .{},
+        .metadata = std.StringHashMap([]const u8).init(allocator),
+    };
+    try node1.tags.append(allocator, try allocator.dupe(u8, "alpha"));
+
+    var hash1: [32]u8 = undefined;
+    @memset(&hash1, 0x11);
+
+    try cache.entries.put(try allocator.dupe(u8, "file1.md"), .{
+        .mtime = 111,
+        .hash = hash1,
+        .node = node1,
+    });
+
+    // Second entry
+    var node2: parser.Node = .{
+        .path = try allocator.dupe(u8, "file2.md"),
+        .title = try allocator.dupe(u8, "File Two"),
+        .content = try allocator.dupe(u8, "Content 2"),
+        .links = .{},
+        .backlinks = .{},
+        .tags = .{},
+        .metadata = std.StringHashMap([]const u8).init(allocator),
+    };
+    try node2.tags.append(allocator, try allocator.dupe(u8, "beta"));
+
+    var hash2: [32]u8 = undefined;
+    @memset(&hash2, 0x22);
+
+    try cache.entries.put(try allocator.dupe(u8, "file2.md"), .{
+        .mtime = 222,
+        .hash = hash2,
+        .node = node2,
+    });
+
+    const cache_path = "test_multi_cache.json";
+    try cache.save(cache_path);
+    defer std.fs.cwd().deleteFile(cache_path) catch {};
+
+    var new_cache = Cache.init(allocator);
+    defer new_cache.deinit();
+
+    try new_cache.load(cache_path);
+    try std.testing.expectEqual(@as(u32, 2), new_cache.entries.count());
+
+    const entry1 = new_cache.entries.get("file1.md").?;
+    try std.testing.expectEqual(@as(i128, 111), entry1.mtime);
+    try std.testing.expectEqualStrings("File One", entry1.node.title);
+
+    const entry2 = new_cache.entries.get("file2.md").?;
+    try std.testing.expectEqual(@as(i128, 222), entry2.mtime);
+    try std.testing.expectEqualStrings("File Two", entry2.node.title);
+}
+
+test "Cache: load missing file returns without error" {
+    const allocator = std.testing.allocator;
+    var cache = Cache.init(allocator);
+    defer cache.deinit();
+
+    try cache.load("nonexistent_cache_file_12345.json");
+    try std.testing.expectEqual(@as(u32, 0), cache.entries.count());
+}
+
+test "Cache: load invalid JSON returns error" {
+    const allocator = std.testing.allocator;
+
+    const cache_path = "test_invalid_cache.json";
+    const file = try std.fs.cwd().createFile(cache_path, .{});
+    defer file.close();
+    defer std.fs.cwd().deleteFile(cache_path) catch {};
+    try file.writeAll("not valid json {{{");
+
+    var cache = Cache.init(allocator);
+    defer cache.deinit();
+
+    try std.testing.expectError(error.SyntaxError, cache.load(cache_path));
+}
+
+test "Cache: link with null nature" {
+    const allocator = std.testing.allocator;
+    var cache = Cache.init(allocator);
+    defer cache.deinit();
+
+    var node: parser.Node = .{
+        .path = try allocator.dupe(u8, "test.md"),
+        .title = try allocator.dupe(u8, "Test"),
+        .content = try allocator.dupe(u8, "Content"),
+        .links = .{},
+        .backlinks = .{},
+        .tags = .{},
+        .metadata = std.StringHashMap([]const u8).init(allocator),
+    };
+    // Link with null nature
+    try node.links.append(allocator, .{ .target = try allocator.dupe(u8, "target_no_nature"), .nature = null });
+
+    var hash: [32]u8 = undefined;
+    @memset(&hash, 0);
+
+    try cache.entries.put(try allocator.dupe(u8, "test.md"), .{
+        .mtime = 0,
+        .hash = hash,
+        .node = node,
+    });
+
+    const cache_path = "test_null_nature.json";
+    try cache.save(cache_path);
+    defer std.fs.cwd().deleteFile(cache_path) catch {};
+
+    var new_cache = Cache.init(allocator);
+    defer new_cache.deinit();
+
+    try new_cache.load(cache_path);
+
+    const entry = new_cache.entries.get("test.md").?;
+    try std.testing.expectEqual(@as(usize, 1), entry.node.links.items.len);
+    try std.testing.expectEqualStrings("target_no_nature", entry.node.links.items[0].target);
+    try std.testing.expect(entry.node.links.items[0].nature == null);
+}
+
+test "Cache: entry with special characters in content" {
+    const allocator = std.testing.allocator;
+    var cache = Cache.init(allocator);
+    defer cache.deinit();
+
+    const node: parser.Node = .{
+        .path = try allocator.dupe(u8, "special.md"),
+        .title = try allocator.dupe(u8, "Title with \"quotes\" and \\backslash"),
+        .content = try allocator.dupe(u8, "Content\nwith\nnewlines\tand\ttabs"),
+        .links = .{},
+        .backlinks = .{},
+        .tags = .{},
+        .metadata = std.StringHashMap([]const u8).init(allocator),
+    };
+
+    var hash: [32]u8 = undefined;
+    @memset(&hash, 0xCD);
+
+    try cache.entries.put(try allocator.dupe(u8, "special.md"), .{
+        .mtime = 999,
+        .hash = hash,
+        .node = node,
+    });
+
+    const cache_path = "test_special_chars.json";
+    try cache.save(cache_path);
+    defer std.fs.cwd().deleteFile(cache_path) catch {};
+
+    var new_cache = Cache.init(allocator);
+    defer new_cache.deinit();
+
+    try new_cache.load(cache_path);
+
+    const entry = new_cache.entries.get("special.md").?;
+    try std.testing.expectEqualStrings("Title with \"quotes\" and \\backslash", entry.node.title);
+    try std.testing.expectEqualStrings("Content\nwith\nnewlines\tand\ttabs", entry.node.content);
+}
