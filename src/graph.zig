@@ -898,3 +898,493 @@ test "Graph: detectClusters" {
 
     try std.testing.expectEqual(@as(usize, 2), clusters.len);
 }
+
+test "Graph: getContext with metadata and tags" {
+    const allocator = std.testing.allocator;
+    var graph = Graph.init(allocator);
+    defer graph.deinit();
+
+    var node: parser.Node = .{
+        .path = try allocator.dupe(u8, "test.md"),
+        .title = try allocator.dupe(u8, "Test Note"),
+        .content = try allocator.dupe(u8, "Content here"),
+        .links = .{},
+        .backlinks = .{},
+        .tags = .{},
+        .metadata = std.StringHashMap([]const u8).init(allocator),
+    };
+    try node.metadata.put(try allocator.dupe(u8, "author"), try allocator.dupe(u8, "Alice"));
+    try node.tags.append(allocator, try allocator.dupe(u8, "important"));
+    try node.links.append(allocator, .{ .target = try allocator.dupe(u8, "Other"), .nature = null });
+
+    try graph.addNode(node);
+
+    const context = try graph.getContext("test.md");
+    defer allocator.free(context);
+
+    try std.testing.expect(std.mem.indexOf(u8, context, "Test Note") != null);
+    try std.testing.expect(std.mem.indexOf(u8, context, "author") != null);
+    try std.testing.expect(std.mem.indexOf(u8, context, "Alice") != null);
+    try std.testing.expect(std.mem.indexOf(u8, context, "#important") != null);
+    try std.testing.expect(std.mem.indexOf(u8, context, "Unresolved") != null);
+}
+
+test "Graph: getContext NodeNotFound error" {
+    const allocator = std.testing.allocator;
+    var graph = Graph.init(allocator);
+    defer graph.deinit();
+
+    const result = graph.getContext("nonexistent.md");
+    try std.testing.expectError(error.NodeNotFound, result);
+}
+
+test "Graph: findSimilarNodes with similar content" {
+    const allocator = std.testing.allocator;
+    var graph = Graph.init(allocator);
+    defer graph.deinit();
+
+    try graph.addNode(.{
+        .path = try allocator.dupe(u8, "a.md"),
+        .title = try allocator.dupe(u8, "A"),
+        .content = try allocator.dupe(u8, "programming software development code"),
+        .links = .{},
+        .backlinks = .{},
+        .tags = .{},
+        .metadata = std.StringHashMap([]const u8).init(allocator),
+    });
+
+    try graph.addNode(.{
+        .path = try allocator.dupe(u8, "b.md"),
+        .title = try allocator.dupe(u8, "B"),
+        .content = try allocator.dupe(u8, "programming software engineering code"),
+        .links = .{},
+        .backlinks = .{},
+        .tags = .{},
+        .metadata = std.StringHashMap([]const u8).init(allocator),
+    });
+
+    try graph.addNode(.{
+        .path = try allocator.dupe(u8, "c.md"),
+        .title = try allocator.dupe(u8, "C"),
+        .content = try allocator.dupe(u8, "cooking recipes food kitchen"),
+        .links = .{},
+        .backlinks = .{},
+        .tags = .{},
+        .metadata = std.StringHashMap([]const u8).init(allocator),
+    });
+
+    const similar = try graph.findSimilarNodes("A", 5);
+    defer allocator.free(similar);
+
+    // B should be similar to A (shared words), C should not
+    try std.testing.expect(similar.len >= 1);
+    try std.testing.expectEqualStrings("B", similar[0].node.title);
+    try std.testing.expect(similar[0].score > 0);
+}
+
+test "Graph: findSimilarNodes NodeNotFound error" {
+    const allocator = std.testing.allocator;
+    var graph = Graph.init(allocator);
+    defer graph.deinit();
+
+    const result = graph.findSimilarNodes("nonexistent", 5);
+    try std.testing.expectError(error.NodeNotFound, result);
+}
+
+test "Graph: suggestLinks finds unlinked similar nodes" {
+    const allocator = std.testing.allocator;
+    var graph = Graph.init(allocator);
+    defer graph.deinit();
+
+    // Two similar nodes with no explicit link
+    try graph.addNode(.{
+        .path = try allocator.dupe(u8, "a.md"),
+        .title = try allocator.dupe(u8, "A"),
+        .content = try allocator.dupe(u8, "machine learning artificial intelligence algorithms"),
+        .links = .{},
+        .backlinks = .{},
+        .tags = .{},
+        .metadata = std.StringHashMap([]const u8).init(allocator),
+    });
+
+    try graph.addNode(.{
+        .path = try allocator.dupe(u8, "b.md"),
+        .title = try allocator.dupe(u8, "B"),
+        .content = try allocator.dupe(u8, "machine learning artificial intelligence neural networks"),
+        .links = .{},
+        .backlinks = .{},
+        .tags = .{},
+        .metadata = std.StringHashMap([]const u8).init(allocator),
+    });
+
+    const suggestions = try graph.suggestLinks(0.3, 10);
+    defer allocator.free(suggestions);
+
+    // Should suggest link between A and B (similar but not linked)
+    try std.testing.expect(suggestions.len >= 1);
+}
+
+test "Graph: suggestLinks excludes already linked nodes" {
+    const allocator = std.testing.allocator;
+    var graph = Graph.init(allocator);
+    defer graph.deinit();
+
+    var node_a: parser.Node = .{
+        .path = try allocator.dupe(u8, "a.md"),
+        .title = try allocator.dupe(u8, "A"),
+        .content = try allocator.dupe(u8, "machine learning artificial intelligence"),
+        .links = .{},
+        .backlinks = .{},
+        .tags = .{},
+        .metadata = std.StringHashMap([]const u8).init(allocator),
+    };
+    try node_a.links.append(allocator, .{ .target = try allocator.dupe(u8, "B"), .nature = null });
+    try graph.addNode(node_a);
+
+    try graph.addNode(.{
+        .path = try allocator.dupe(u8, "b.md"),
+        .title = try allocator.dupe(u8, "B"),
+        .content = try allocator.dupe(u8, "machine learning artificial intelligence"),
+        .links = .{},
+        .backlinks = .{},
+        .tags = .{},
+        .metadata = std.StringHashMap([]const u8).init(allocator),
+    });
+
+    const suggestions = try graph.suggestLinks(0.3, 10);
+    defer allocator.free(suggestions);
+
+    // Should not suggest A-B since they're already linked
+    for (suggestions) |s| {
+        try std.testing.expect(!(std.mem.eql(u8, s.source.title, "A") and std.mem.eql(u8, s.target.title, "B")));
+        try std.testing.expect(!(std.mem.eql(u8, s.source.title, "B") and std.mem.eql(u8, s.target.title, "A")));
+    }
+}
+
+test "Graph: generateMoc creates map of content" {
+    const allocator = std.testing.allocator;
+    var graph = Graph.init(allocator);
+    defer graph.deinit();
+
+    // Create connected graph
+    try graph.addNode(.{
+        .path = try allocator.dupe(u8, "a.md"),
+        .title = try allocator.dupe(u8, "A"),
+        .content = try allocator.dupe(u8, ""),
+        .links = .{},
+        .backlinks = .{},
+        .tags = .{},
+        .metadata = std.StringHashMap([]const u8).init(allocator),
+    });
+
+    var node_b: parser.Node = .{
+        .path = try allocator.dupe(u8, "b.md"),
+        .title = try allocator.dupe(u8, "B"),
+        .content = try allocator.dupe(u8, ""),
+        .links = .{},
+        .backlinks = .{},
+        .tags = .{},
+        .metadata = std.StringHashMap([]const u8).init(allocator),
+    };
+    try node_b.links.append(allocator, .{ .target = try allocator.dupe(u8, "A"), .nature = null });
+    try graph.addNode(node_b);
+
+    try graph.resolveBacklinks();
+
+    const moc = try graph.generateMoc();
+    defer allocator.free(moc);
+
+    try std.testing.expect(std.mem.indexOf(u8, moc, "Map of Content") != null);
+    try std.testing.expect(std.mem.indexOf(u8, moc, "Community") != null);
+}
+
+test "Graph: detectLouvainCommunities groups connected nodes" {
+    const allocator = std.testing.allocator;
+    var graph = Graph.init(allocator);
+    defer graph.deinit();
+
+    // Create two communities: (A-B-C) and (D-E)
+    const titles = [_][]const u8{ "A", "B", "C", "D", "E" };
+    for (titles) |title| {
+        try graph.addNode(.{
+            .path = try allocator.dupe(u8, title),
+            .title = try allocator.dupe(u8, title),
+            .content = try allocator.dupe(u8, ""),
+            .links = .{},
+            .backlinks = .{},
+            .tags = .{},
+            .metadata = std.StringHashMap([]const u8).init(allocator),
+        });
+    }
+
+    // Community 1: A <-> B <-> C
+    try graph.findNodeByTitle("A").?.links.append(allocator, .{ .target = try allocator.dupe(u8, "B"), .nature = null });
+    try graph.findNodeByTitle("B").?.links.append(allocator, .{ .target = try allocator.dupe(u8, "C"), .nature = null });
+
+    // Community 2: D <-> E
+    try graph.findNodeByTitle("D").?.links.append(allocator, .{ .target = try allocator.dupe(u8, "E"), .nature = null });
+
+    try graph.resolveBacklinks();
+
+    var communities = try graph.detectLouvainCommunities(10);
+    defer communities.deinit();
+
+    // All nodes should have a community assignment
+    try std.testing.expectEqual(@as(usize, 5), communities.count());
+}
+
+test "Graph: exportGraphJson produces valid JSON" {
+    const allocator = std.testing.allocator;
+    var graph = Graph.init(allocator);
+    defer graph.deinit();
+
+    var node_a: parser.Node = .{
+        .path = try allocator.dupe(u8, "a.md"),
+        .title = try allocator.dupe(u8, "A"),
+        .content = try allocator.dupe(u8, ""),
+        .links = .{},
+        .backlinks = .{},
+        .tags = .{},
+        .metadata = std.StringHashMap([]const u8).init(allocator),
+    };
+    try node_a.links.append(allocator, .{ .target = try allocator.dupe(u8, "B"), .nature = try allocator.dupe(u8, "supports") });
+    try graph.addNode(node_a);
+
+    try graph.addNode(.{
+        .path = try allocator.dupe(u8, "b.md"),
+        .title = try allocator.dupe(u8, "B"),
+        .content = try allocator.dupe(u8, ""),
+        .links = .{},
+        .backlinks = .{},
+        .tags = .{},
+        .metadata = std.StringHashMap([]const u8).init(allocator),
+    });
+
+    try graph.resolveBacklinks();
+
+    const json = try graph.exportGraphJson();
+    defer allocator.free(json);
+
+    // Verify JSON structure
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"nodes\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"links\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "\"supports\"") != null);
+}
+
+test "Graph: getGcReport identifies orphans and islands" {
+    const allocator = std.testing.allocator;
+    var graph = Graph.init(allocator);
+    defer graph.deinit();
+
+    // Orphan: single node with no connections
+    try graph.addNode(.{
+        .path = try allocator.dupe(u8, "orphan.md"),
+        .title = try allocator.dupe(u8, "Orphan"),
+        .content = try allocator.dupe(u8, ""),
+        .links = .{},
+        .backlinks = .{},
+        .tags = .{},
+        .metadata = std.StringHashMap([]const u8).init(allocator),
+    });
+
+    // Small island: two connected nodes
+    var island_a: parser.Node = .{
+        .path = try allocator.dupe(u8, "island_a.md"),
+        .title = try allocator.dupe(u8, "IslandA"),
+        .content = try allocator.dupe(u8, ""),
+        .links = .{},
+        .backlinks = .{},
+        .tags = .{},
+        .metadata = std.StringHashMap([]const u8).init(allocator),
+    };
+    try island_a.links.append(allocator, .{ .target = try allocator.dupe(u8, "IslandB"), .nature = null });
+    try graph.addNode(island_a);
+
+    try graph.addNode(.{
+        .path = try allocator.dupe(u8, "island_b.md"),
+        .title = try allocator.dupe(u8, "IslandB"),
+        .content = try allocator.dupe(u8, ""),
+        .links = .{},
+        .backlinks = .{},
+        .tags = .{},
+        .metadata = std.StringHashMap([]const u8).init(allocator),
+    });
+
+    try graph.resolveBacklinks();
+
+    var report = try graph.getGcReport(3);
+    defer report.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 1), report.orphans.items.len);
+    try std.testing.expectEqual(@as(usize, 1), report.islands.items.len);
+}
+
+test "Graph: empty graph operations" {
+    const allocator = std.testing.allocator;
+    var graph = Graph.init(allocator);
+    defer graph.deinit();
+
+    try std.testing.expect((try graph.findShortestPath("A", "B")) == null);
+    try std.testing.expect(graph.findNodeByTitle("NonExistent") == null);
+
+    var pr = try graph.computePageRank(5);
+    defer pr.deinit();
+    try std.testing.expectEqual(@as(usize, 0), pr.count());
+
+    const clusters = try graph.detectClusters();
+    defer {
+        for (clusters) |*c| c.deinit(allocator);
+        allocator.free(clusters);
+    }
+    try std.testing.expectEqual(@as(usize, 0), clusters.len);
+}
+
+test "Graph: single node graph" {
+    const allocator = std.testing.allocator;
+    var graph = Graph.init(allocator);
+    defer graph.deinit();
+
+    try graph.addNode(.{
+        .path = try allocator.dupe(u8, "solo.md"),
+        .title = try allocator.dupe(u8, "Solo"),
+        .content = try allocator.dupe(u8, "content"),
+        .links = .{},
+        .backlinks = .{},
+        .tags = .{},
+        .metadata = std.StringHashMap([]const u8).init(allocator),
+    });
+
+    // Path to self
+    const path = (try graph.findShortestPath("Solo", "Solo")).?;
+    defer {
+        for (path) |p| allocator.free(p);
+        allocator.free(path);
+    }
+    try std.testing.expectEqual(@as(usize, 1), path.len);
+    try std.testing.expectEqualStrings("Solo", path[0]);
+
+    // Single cluster
+    const clusters = try graph.detectClusters();
+    defer {
+        for (clusters) |*c| c.deinit(allocator);
+        allocator.free(clusters);
+    }
+    try std.testing.expectEqual(@as(usize, 1), clusters.len);
+    try std.testing.expectEqual(@as(usize, 1), clusters[0].nodes.items.len);
+}
+
+test "Graph: circular reference handling" {
+    const allocator = std.testing.allocator;
+    var graph = Graph.init(allocator);
+    defer graph.deinit();
+
+    // A -> B -> C -> A (circular)
+    const titles = [_][]const u8{ "A", "B", "C" };
+    for (titles) |title| {
+        try graph.addNode(.{
+            .path = try allocator.dupe(u8, title),
+            .title = try allocator.dupe(u8, title),
+            .content = try allocator.dupe(u8, ""),
+            .links = .{},
+            .backlinks = .{},
+            .tags = .{},
+            .metadata = std.StringHashMap([]const u8).init(allocator),
+        });
+    }
+
+    try graph.findNodeByTitle("A").?.links.append(allocator, .{ .target = try allocator.dupe(u8, "B"), .nature = null });
+    try graph.findNodeByTitle("B").?.links.append(allocator, .{ .target = try allocator.dupe(u8, "C"), .nature = null });
+    try graph.findNodeByTitle("C").?.links.append(allocator, .{ .target = try allocator.dupe(u8, "A"), .nature = null });
+
+    try graph.resolveBacklinks();
+
+    // Should find path even with cycle
+    const path = (try graph.findShortestPath("A", "C")).?;
+    defer {
+        for (path) |p| allocator.free(p);
+        allocator.free(path);
+    }
+    try std.testing.expect(path.len >= 2);
+
+    // Should be one cluster (all connected)
+    const clusters = try graph.detectClusters();
+    defer {
+        for (clusters) |*c| c.deinit(allocator);
+        allocator.free(clusters);
+    }
+    try std.testing.expectEqual(@as(usize, 1), clusters.len);
+}
+
+test "Graph: findShortestPath with link nature" {
+    const allocator = std.testing.allocator;
+    var graph = Graph.init(allocator);
+    defer graph.deinit();
+
+    var node_a: parser.Node = .{
+        .path = try allocator.dupe(u8, "a.md"),
+        .title = try allocator.dupe(u8, "A"),
+        .content = try allocator.dupe(u8, ""),
+        .links = .{},
+        .backlinks = .{},
+        .tags = .{},
+        .metadata = std.StringHashMap([]const u8).init(allocator),
+    };
+    try node_a.links.append(allocator, .{ .target = try allocator.dupe(u8, "B"), .nature = try allocator.dupe(u8, "supports") });
+    try graph.addNode(node_a);
+
+    try graph.addNode(.{
+        .path = try allocator.dupe(u8, "b.md"),
+        .title = try allocator.dupe(u8, "B"),
+        .content = try allocator.dupe(u8, ""),
+        .links = .{},
+        .backlinks = .{},
+        .tags = .{},
+        .metadata = std.StringHashMap([]const u8).init(allocator),
+    });
+
+    const path = (try graph.findShortestPath("A", "B")).?;
+    defer {
+        for (path) |p| allocator.free(p);
+        allocator.free(path);
+    }
+
+    try std.testing.expectEqual(@as(usize, 2), path.len);
+    try std.testing.expectEqualStrings("A", path[0]);
+    try std.testing.expectEqualStrings("B", path[1]);
+}
+
+test "Graph: resolveBacklinks with .md extension stripping" {
+    const allocator = std.testing.allocator;
+    var graph = Graph.init(allocator);
+    defer graph.deinit();
+
+    const node_a: parser.Node = .{
+        .path = try allocator.dupe(u8, "a.md"),
+        .title = try allocator.dupe(u8, "target.md"), // Title has .md
+        .content = try allocator.dupe(u8, ""),
+        .links = .{},
+        .backlinks = .{},
+        .tags = .{},
+        .metadata = std.StringHashMap([]const u8).init(allocator),
+    };
+    try graph.addNode(node_a);
+
+    var node_b: parser.Node = .{
+        .path = try allocator.dupe(u8, "b.md"),
+        .title = try allocator.dupe(u8, "B"),
+        .content = try allocator.dupe(u8, ""),
+        .links = .{},
+        .backlinks = .{},
+        .tags = .{},
+        .metadata = std.StringHashMap([]const u8).init(allocator),
+    };
+    // Link to "target" (without .md) should still resolve to "target.md"
+    try node_b.links.append(allocator, .{ .target = try allocator.dupe(u8, "target"), .nature = null });
+    try graph.addNode(node_b);
+
+    try graph.resolveBacklinks();
+
+    const target = graph.findNodeByTitle("target.md").?;
+    try std.testing.expectEqual(@as(usize, 1), target.backlinks.items.len);
+    try std.testing.expectEqualStrings("B", target.backlinks.items[0]);
+}
