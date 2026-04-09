@@ -1,19 +1,56 @@
+//! Markdown parser for knowledge graph nodes.
+//!
+//! Parses Obsidian-style markdown files into Node structs with:
+//! - YAML frontmatter metadata
+//! - Wikilinks: [[target]] and [[nature::target]]
+//! - Tags: #tag (distinguishing from markdown headers)
+//!
+//! Design: Single-pass parsing for efficiency. All strings are owned by Node
+//! and must be freed via deinit().
+
 const std = @import("std");
 
+/// Represents a link from one note to another.
+/// Wikilinks can have optional "nature" describing the relationship type.
+/// Example: [[supports::Feature A]] -> nature="supports", target="Feature A"
 pub const Link = struct {
+    /// The target note name/path (required)
     target: []const u8,
+    /// Optional relationship type (e.g., "supports", "contradicts", "derived-from")
+    /// Uses :: syntax: [[nature::target]]
     nature: ?[]const u8,
 };
 
+/// A parsed markdown note in the knowledge graph.
+///
+/// Ownership: All string fields are owned by this struct.
+/// Must call deinit() to free all allocated memory.
+///
+/// Design: Uses ArrayLists for variable-length collections (links, tags, backlinks)
+/// and StringHashMap for O(1) metadata lookups. Backlinks are populated externally
+/// by the graph module after parsing all nodes.
 pub const Node = struct {
+    /// File path relative to knowledge base root
     path: []const u8,
+    /// Display title (currently basename of path, could be enhanced to use first H1)
     title: []const u8,
+    /// Raw markdown content (includes frontmatter)
     content: []const u8,
+    /// Outgoing wikilinks found in content
     links: std.ArrayList(Link),
+    /// Incoming links from other notes (populated by graph module, not parser)
     backlinks: std.ArrayList([]const u8),
+    /// Tags extracted from #tag syntax
     tags: std.ArrayList([]const u8),
+    /// YAML frontmatter key-value pairs
     metadata: std.StringHashMap([]const u8),
 
+    /// Creates a deep copy of the node with all strings duplicated.
+    /// Used when nodes need independent lifetimes (e.g., cache invalidation).
+    ///
+    /// Why deep clone: ArrayList.clone() only copies slices (pointers), not the
+    /// underlying string data. We dupe each string to ensure the clone survives
+    /// after the original is deinitialized.
     pub fn clone(self: Node, allocator: std.mem.Allocator) !Node {
         var new_node: Node = .{
             .path = try allocator.dupe(u8, self.path),
@@ -51,20 +88,32 @@ pub const Node = struct {
         return new_node;
     }
 
+    /// Frees all owned memory. Must be called when node is no longer needed.
+    ///
+    /// Order matters: Free child allocations before containers.
+    /// 1. Free strings in ArrayLists
+    /// 2. Free ArrayLists themselves
+    /// 3. Free metadata keys/values, then HashMap
+    ///
+    /// Sets self.* = undefined to catch use-after-free bugs (accessing undefined
+    /// memory will crash rather than silently corrupt data).
     pub fn deinit(self: *Node, allocator: std.mem.Allocator) void {
         allocator.free(self.path);
         allocator.free(self.title);
         allocator.free(self.content);
+        // Free link strings before ArrayList
         for (self.links.items) |link| {
             allocator.free(link.target);
             if (link.nature) |nat| allocator.free(nat);
         }
         for (self.backlinks.items) |blink| allocator.free(blink);
         for (self.tags.items) |tag| allocator.free(tag);
+        // Free ArrayList buffers
         self.links.deinit(allocator);
         self.backlinks.deinit(allocator);
         self.tags.deinit(allocator);
 
+        // Free metadata key/value strings before HashMap
         var meta_iter = self.metadata.iterator();
         while (meta_iter.next()) |entry| {
             allocator.free(entry.key_ptr.*);
@@ -75,6 +124,15 @@ pub const Node = struct {
     }
 };
 
+/// Markdown parser that extracts structured data from notes.
+///
+/// Usage:
+///   var parser = Parser.init(allocator);
+///   var node = try parser.parseFile("note.md");
+///   defer node.deinit(allocator);
+///
+/// Thread safety: Parser is NOT thread-safe. Use one parser per thread or
+/// synchronize access.
 pub const Parser = struct {
     allocator: std.mem.Allocator,
 
@@ -82,6 +140,10 @@ pub const Parser = struct {
         return .{ .allocator = allocator };
     }
 
+    /// Parses a markdown file from disk.
+    ///
+    /// 1MB limit prevents memory exhaustion from accidentally parsing binary files
+    /// or extremely large documents. Most knowledge base notes are <100KB.
     pub fn parseFile(self: *Parser, path: []const u8) !Node {
         const file = try std.fs.cwd().openFile(path, .{});
         defer file.close();
@@ -92,7 +154,19 @@ pub const Parser = struct {
         return self.parseContent(path, content);
     }
 
+    /// Parses markdown content string into a Node.
+    ///
+    /// Processing order:
+    /// 1. Create Node with path/title/content (all dupe'd for ownership)
+    /// 2. Parse YAML frontmatter if present (between --- markers)
+    /// 3. Extract wikilinks: [[target]] and [[nature::target]]
+    /// 4. Extract tags: #tag (skip markdown headers ##, ###, etc.)
+    ///
+    /// Why single-pass: Avoids multiple content scans. Frontmatter and links/tags
+    /// can be extracted in one traversal after frontmatter boundary is found.
     pub fn parseContent(self: *Parser, path: []const u8, content: []const u8) !Node {
+        // Initialize node with empty collections
+        // ArrayLists start empty (.{} = zero-length unmanaged ArrayList)
         var node: Node = .{
             .path = try self.allocator.dupe(u8, path),
             .title = try self.allocator.dupe(u8, std.fs.path.basename(path)),
@@ -106,13 +180,19 @@ pub const Parser = struct {
 
         var content_start: usize = 0;
 
-        // Frontmatter parsing
+        // YAML frontmatter: ---\nkey: value\n---\n
+        // Why check content[3..]: Skip first ---, find closing ---
+        // This handles files that start with --- but aren't frontmatter (rare edge case)
         if (std.mem.startsWith(u8, content, "---")) {
             const second_sep = std.mem.indexOf(u8, content[3..], "---");
             if (second_sep) |sep_idx| {
                 const frontmatter = content[3 .. sep_idx + 3];
                 content_start = sep_idx + 6; // Move past --- and potential newline
 
+                // Simple YAML parsing: split on first ":" per line
+                // Limitation: Values with colons (URLs) get truncated
+                // Example: "url: https://example.com" -> key="url", value="https"
+                // Future: Could use proper YAML parser for complex values
                 var lines = std.mem.tokenizeAny(u8, frontmatter, "\r\n");
                 while (lines.next()) |line| {
                     var parts = std.mem.splitSequence(u8, line, ":");
@@ -129,17 +209,26 @@ pub const Parser = struct {
             }
         }
 
-        // Simple Wikilink extraction: [[link]]
+        // Single-pass extraction of wikilinks and tags
+        // Why single loop: Both features scan content character-by-character,
+        // combining them avoids redundant iteration.
         var i: usize = content_start;
         while (i < content.len) : (i += 1) {
+            // Wikilink detection: [[target]] or [[nature::target]]
+            // Obsidian/Logseq-style syntax for note links
             if (i + 2 <= content.len and std.mem.eql(u8, content[i .. i + 2], "[[")) {
                 const start = i + 2;
                 var end = start;
+                // Find closing ]]: scan until "]]" found
+                // Limitation: Doesn't handle nested [[...]] inside wikilink
                 while (end < content.len and !(end + 2 <= content.len and std.mem.eql(u8, content[end .. end + 2], "]]"))) : (end += 1) {}
                 if (end + 2 <= content.len and std.mem.eql(u8, content[end .. end + 2], "]]")) {
                     const raw_link = content[start..end];
                     var link_obj: Link = .{ .target = undefined, .nature = null };
 
+                    // Split on :: to separate nature from target
+                    // First :: is separator, subsequent :: stay in target
+                    // Example: [[a::b::c]] -> nature="a", target="b::c"
                     if (std.mem.indexOf(u8, raw_link, "::")) |sep_idx| {
                         link_obj.nature = try self.allocator.dupe(u8, std.mem.trim(u8, raw_link[0..sep_idx], " "));
                         link_obj.target = try self.allocator.dupe(u8, std.mem.trim(u8, raw_link[sep_idx + 2 ..], " "));
@@ -148,23 +237,35 @@ pub const Parser = struct {
                     }
 
                     try node.links.append(self.allocator, link_obj);
-                    i = end + 1;
+                    i = end + 1; // Skip past ]] to continue scanning
                 }
             } else if (content[i] == '#') {
-                // Tag extraction: #tag (must NOT be markdown header ##, ###, etc.)
-                // Check if next char is # or space (header pattern like "# " or "##")
+                // Tag extraction: #tag
+                // Must distinguish from markdown headers: # Heading, ## Heading, etc.
+                //
+                // Heuristic: If # is followed by # or space, it's a header:
+                //   "# Heading" -> # followed by space = header
+                //   "## Heading" -> # followed by # = header
+                //   "#tag" -> # followed by 't' = tag
+                //
+                // Limitation: "# heading" (H1 with space) correctly skipped,
+                // but "#heading" (tag-like) would be extracted as tag.
+                // This matches Obsidian behavior.
                 if (i + 1 < content.len and (content[i + 1] == '#' or content[i + 1] == ' ')) {
-                    // This is a markdown header, skip
+                    // Markdown header, not a tag
                     continue;
                 }
 
                 const start = i + 1;
                 var end = start;
+                // Tag ends at whitespace or sentence punctuation
+                // Allows: underscores, hyphens, numbers, letters in tags
+                // Example: #tag_name, #tag-name, #tag123 all valid
                 while (end < content.len and !std.ascii.isWhitespace(content[end]) and content[end] != '.' and content[end] != ',') : (end += 1) {}
                 if (end > start) {
                     const tag = try self.allocator.dupe(u8, content[start..end]);
                     try node.tags.append(self.allocator, tag);
-                    i = end;
+                    i = end; // Continue from tag end
                 }
             }
         }
@@ -172,6 +273,10 @@ pub const Parser = struct {
         return node;
     }
 };
+
+// Tests: Each test covers a specific parsing scenario.
+// Naming convention: "Parser: <feature> <variant>"
+// Tests verify both happy path and edge cases/limitations.
 
 test "Parser: basic parsing" {
     const allocator = std.testing.allocator;
