@@ -237,6 +237,26 @@ test "Parser: tags" {
     try std.testing.expectEqualStrings("urgent", node.tags.items[1]);
 }
 
+test "Parser: tags vs markdown headers" {
+    const allocator = std.testing.allocator;
+    var parser = Parser.init(allocator);
+
+    const content =
+        \\## Heading 1
+        \\### Heading 2
+        \\# Heading 3
+        \\
+        \\This has #real-tag but not # header-like.
+        \\#### Another heading
+    ;
+    var node = try parser.parseContent("test.md", content);
+    defer node.deinit(allocator);
+
+    // Only #real-tag should be extracted, headers should be skipped
+    try std.testing.expectEqual(@as(usize, 1), node.tags.items.len);
+    try std.testing.expectEqualStrings("real-tag", node.tags.items[0]);
+}
+
 test "Parser: complex combination" {
     const allocator = std.testing.allocator;
     var parser = Parser.init(allocator);
