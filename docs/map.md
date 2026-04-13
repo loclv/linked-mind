@@ -12,7 +12,7 @@ Think like a real life events, objects - learn from Buddha's teachings:
 🌟 Headers:
 
 - 'id': document ID (required), UUID for unique identifier, used for Directed Graph, cause and effect.
-- 'name': main content of the document (short). (required)
+- 'path': path to the document. (required)
 - 'tags': tags to categorize the document, comma separated, wrap with double quotes if multiple tags. Example: `"IT,error,api,auth"`. (required)
 - 'summary': summary, context of the document. (required)
 - 'problem': problem that was encountered. (optional)
