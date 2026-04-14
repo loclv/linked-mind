@@ -1,6 +1,11 @@
-# 🔗 Linked-Mind (Zig Edition)
+# 🥦 Linked-Mind
 
-Linked-Mind is a high-performance Knowledge Base (KB) tool written in Zig. It bridges the gap between static Markdown files and LLM context by representing your documents as a Knowledge Graph.
+<div align="center">
+  <img src="assets/broccoli_kun.png" width="150" alt="Broccoli Kun Avatar" />
+</div>
+
+WARNING: This project is currently in active development.
+Linked-Mind is a high-performance Knowledge Base (KB) tool written in [Zig](https://ziglang.org/). It bridges the gap between static Markdown files and LLM context by representing your documents as a Knowledge Graph.
 Instead of feeding an AI random files, Linked-Mind helps the LLM understand how ideas are connected by extracting links, tags, and structure into a machine-readable "Graph Context".
 
 ## 🚀 Features
