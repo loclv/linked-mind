@@ -5,7 +5,7 @@ This document outlines the strategic roadmap for the next evolution of Linked-Mi
 ## 1. ⚡ Real-Time Intelligence & Sync
 Currently, the system requires manual rescans. The "ideal" state is a "Living Graph" that breathes with your notes.
 
-- [ ] **Native File Watcher**: Implement a cross-platform background daemon in Zig using `fsevents` (Mac), `inotify` (Linux), and `ReadDirectoryChangesW` (Windows).
+- [x] **Native File Watcher**: Implement a cross-platform background daemon in Zig (implemented as `li watch` polling loop).
 - [ ] **Live UI Rehydration**: Automatically push updates to the `graph.json` and trigger a refresh in the Web Visualizer when files change.
 - [ ] **Hot-Reloading LLM Context**: A persistent API server that always provides the most up-to-date `llm_knowledge.md` via an HTTP endpoint.
 

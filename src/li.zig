@@ -17,6 +17,7 @@ const usage =
     \\  similar <title>   Find nodes similar to the given title
     \\  suggest           Suggest missing links based on similarity
     \\  visualize         Export graph.json for web visualization
+    \\  watch [path]      Watch folder for changes and emit events (JSON)
     \\
     \\Global Options:
     \\  --tag <tag>       Filter results by tag
@@ -290,9 +291,153 @@ fn runCommand(allocator: std.mem.Allocator, cmd: []const u8, ws_root: []const u8
         defer allocator.free(json_path);
         try std.fs.cwd().writeFile(.{ .sub_path = json_path, .data = json });
         std.debug.print("Visualizer data written to {s}\n", .{json_path});
+    } else if (std.mem.eql(u8, cmd, "watch")) {
+        const watch_path_raw = if (args.len > 0) args[0] else ws_root;
+        const watch_path = try std.fs.cwd().realpathAlloc(allocator, watch_path_raw);
+        defer allocator.free(watch_path);
+        try watchWorkspace(allocator, watch_path);
     } else {
         std.debug.print("Unknown command: {s}\n{s}", .{ cmd, usage });
     }
+}
+
+fn watchWorkspace(allocator: std.mem.Allocator, watch_path: []const u8) !void {
+    var kb_parser = parser.Parser.init(allocator);
+    var known_files = std.StringHashMap(i128).init(allocator);
+    defer {
+        var iter = known_files.iterator();
+        while (iter.next()) |entry| allocator.free(entry.key_ptr.*);
+        known_files.deinit();
+    }
+
+    // Pre-scan to populate known_files
+    {
+        var watch_dir = try std.fs.openDirAbsolute(watch_path, .{ .iterate = true });
+        defer watch_dir.close();
+        var walker = try watch_dir.walk(allocator);
+        defer walker.deinit();
+        while (try walker.next()) |entry| {
+            if (std.mem.startsWith(u8, entry.path, ".li") or std.mem.startsWith(u8, entry.path, ".")) continue;
+
+            if (entry.kind == .file and std.mem.endsWith(u8, entry.basename, ".md")) {
+                const abs_path = try std.fs.path.join(allocator, &[_][]const u8{ watch_path, entry.path });
+                const stat = watch_dir.statFile(entry.path) catch |err| {
+                    if (err == error.FileNotFound) {
+                        allocator.free(abs_path);
+                        continue;
+                    }
+                    return err;
+                };
+                try known_files.put(abs_path, stat.mtime);
+            }
+        }
+    }
+
+    std.debug.print("Watching {s} for changes... (Press Ctrl+C to stop)\n", .{watch_path});
+
+    while (true) {
+        var current_files = std.StringHashMap(i128).init(allocator);
+        defer {
+            var iter = current_files.iterator();
+            while (iter.next()) |entry| allocator.free(entry.key_ptr.*);
+            current_files.deinit();
+        }
+
+        var watch_dir = std.fs.openDirAbsolute(watch_path, .{ .iterate = true }) catch |err| {
+            std.debug.print("Error opening watch directory: {any}\n", .{err});
+            std.Thread.sleep(1 * std.time.ns_per_s);
+            continue;
+        };
+        defer watch_dir.close();
+
+        var walker = try watch_dir.walk(allocator);
+        defer walker.deinit();
+
+        while (try walker.next()) |entry| {
+            if (std.mem.startsWith(u8, entry.path, ".li") or std.mem.startsWith(u8, entry.path, ".")) continue;
+
+            if (entry.kind == .file and std.mem.endsWith(u8, entry.basename, ".md")) {
+                const abs_path = try std.fs.path.join(allocator, &[_][]const u8{ watch_path, entry.path });
+                const stat = watch_dir.statFile(entry.path) catch |err| {
+                    if (err == error.FileNotFound) {
+                        allocator.free(abs_path);
+                        continue;
+                    }
+                    return err;
+                };
+                try current_files.put(abs_path, stat.mtime);
+            }
+        }
+
+        // Check for deleted files
+        var known_iter = known_files.iterator();
+        while (known_iter.next()) |entry| {
+            if (!current_files.contains(entry.key_ptr.*)) {
+                std.debug.print("{{\"event\": \"deleted\", \"path\": \"{s}\"}}\n", .{entry.key_ptr.*});
+            }
+        }
+
+        // Check for created or updated files
+        var current_iter = current_files.iterator();
+        while (current_iter.next()) |entry| {
+            const path = entry.key_ptr.*;
+            const mtime = entry.value_ptr.*;
+
+            if (known_files.get(path)) |known_mtime| {
+                if (mtime > known_mtime) {
+                    // Updated
+                    var node = try kb_parser.parseFile(path);
+                    defer node.deinit(allocator);
+                    std.debug.print("{{\"event\": \"updated\", \"path\": \"{s}\", \"node\": ", .{path});
+                    serializeNodeToDebug(node);
+                    std.debug.print("}}\n", .{});
+                }
+            } else {
+                // Created
+                var node = try kb_parser.parseFile(path);
+                defer node.deinit(allocator);
+                std.debug.print("{{\"event\": \"created\", \"path\": \"{s}\", \"node\": ", .{path});
+                serializeNodeToDebug(node);
+                std.debug.print("}}\n", .{});
+            }
+        }
+
+        // Update known_files
+        // Clear and refill to be safe with keys
+        var old_iter = known_files.iterator();
+        while (old_iter.next()) |entry| allocator.free(entry.key_ptr.*);
+        known_files.clearRetainingCapacity();
+
+        var new_iter = current_files.iterator();
+        while (new_iter.next()) |entry| {
+            try known_files.put(try allocator.dupe(u8, entry.key_ptr.*), entry.value_ptr.*);
+        }
+
+        std.Thread.sleep(1 * std.time.ns_per_s);
+    }
+}
+
+fn serializeNodeToDebug(node: parser.Node) void {
+    std.debug.print("{{\"title\": {f}, \"id\": {f}, \"tags\": [", .{
+        std.json.fmt(node.title, .{}),
+        std.json.fmt(node.id, .{}),
+    });
+    for (node.tags.items, 0..) |tag, i| {
+        if (i > 0) std.debug.print(",", .{});
+        std.debug.print("{f}", .{std.json.fmt(tag, .{})});
+    }
+    std.debug.print("], \"links\": [", .{});
+    for (node.links.items, 0..) |link, i| {
+        if (i > 0) std.debug.print(",", .{});
+        std.debug.print("{{\"target\": {f}, \"nature\": ", .{std.json.fmt(link.target, .{})});
+        if (link.nature) |nat| {
+            std.debug.print("{f}", .{std.json.fmt(nat, .{})});
+        } else {
+            std.debug.print("null", .{});
+        }
+        std.debug.print("}}", .{});
+    }
+    std.debug.print("]}}", .{});
 }
 
 fn calculateHash(path: []const u8) ![32]u8 {
