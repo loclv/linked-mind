@@ -5,8 +5,9 @@
 </div>
 
 WARNING: This project is currently in active development.
-Linked-Mind is a high-performance Knowledge Base (KB) tool written in [Zig](https://ziglang.org/). It bridges the gap between static Markdown files and LLM context by representing your documents as a Knowledge Graph.
+Linked-Mind is a high-performance Knowledge Base (KB) tool written in [Zig](https://ziglang.org/). Inspired by [Andrej Karpathy's LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f), it bridges the gap between static Markdown files and LLM context by representing your documents as a Knowledge Graph.
 Instead of feeding an AI random files, Linked-Mind helps the LLM understand how ideas are connected by extracting links, tags, and structure into a machine-readable "Graph Context".
+The mind-map, a reasoning-based, human-like retrieval RAG system over long documents (like [VectifyAI/PageIndex](https://github.com/VectifyAI/PageIndex)) but using mind-map method to structure the document. No Vectors Needed. No Chunking Needed. No approximate semantic search. Image instead of reading a full text book, you can just read the mind-map and understand the content of the book.
 
 ## 🚀 Features
 
