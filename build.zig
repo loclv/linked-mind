@@ -94,6 +94,19 @@ pub fn build(b: *std.Build) void {
     // This will evaluate the `run` step rather than the default step.
     // For a top level step to actually do something, it must depend on other
     // steps (e.g. a Run step, as we will see in a moment).
+    const li_exe = b.addExecutable(.{
+        .name = "li",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/li.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "linked_mind", .module = mod },
+            },
+        }),
+    });
+    b.installArtifact(li_exe);
+
     const run_step = b.step("run", "Run the app");
 
     // This creates a RunArtifact step in the build graph. A RunArtifact step

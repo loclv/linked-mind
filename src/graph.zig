@@ -506,7 +506,7 @@ pub const Graph = struct {
     }
 
     /// Generate CSV map of the knowledge graph.
-    /// Format: id,name,tags,summary,problem,solution,action,causeIds,effectIds,nextPartOfIds,previousPartOfIds
+    /// Format: id,path,tags,summary,problem,solution,action,causeIds,effectIds,nextPartOfIds,previousPartOfIds
     /// - causeIds: documents that caused this one (backlinks)
     /// - effectIds: documents this one caused (outgoing links)
     /// - nextPartOfIds: next part/continuation documents (from metadata)
@@ -516,7 +516,7 @@ pub const Graph = struct {
         defer csv.deinit(self.allocator);
 
         // Write header
-        try csv.writer(self.allocator).print("id,name,tags,summary,problem,solution,action,causeIds,effectIds,nextPartOfIds,previousPartOfIds\n", .{});
+        try csv.writer(self.allocator).print("id,path,tags,summary,problem,solution,action,causeIds,effectIds,nextPartOfIds,previousPartOfIds\n", .{});
 
         var node_it = self.nodes.iterator();
         while (node_it.next()) |entry| {
@@ -525,8 +525,8 @@ pub const Graph = struct {
             // id
             try csv.writer(self.allocator).print("{s},", .{node.id});
 
-            // name (escape commas if present)
-            try self.writeCsvField(&csv, node.title);
+            // path (escape commas if present)
+            try self.writeCsvField(&csv, node.path);
             try csv.append(self.allocator, ',');
 
             // tags (comma-separated, wrapped in quotes if multiple)
@@ -1345,13 +1345,13 @@ test "Graph: generateMapCsv creates CSV with all fields" {
     defer allocator.free(csv);
 
     // Verify header
-    try std.testing.expect(std.mem.indexOf(u8, csv, "id,name,tags,summary,problem,solution,action,causeIds,effectIds,nextPartOfIds,previousPartOfIds") != null);
+    try std.testing.expect(std.mem.indexOf(u8, csv, "id,path,tags,summary,problem,solution,action,causeIds,effectIds,nextPartOfIds,previousPartOfIds") != null);
 
-    // Verify node A row
-    try std.testing.expect(std.mem.indexOf(u8, csv, "uuid-a,A,\"tag1,tag2\",Summary A,Problem A,Solution A,Action A,,uuid-b,uuid-b,") != null);
+    // Verify node A row (path is file path, not title)
+    try std.testing.expect(std.mem.indexOf(u8, csv, "uuid-a,a.md,\"tag1,tag2\",Summary A,Problem A,Solution A,Action A,,uuid-b,uuid-b,") != null);
 
     // Verify node B row with backlink and previousPartOfIds
-    try std.testing.expect(std.mem.indexOf(u8, csv, "uuid-b,B,tag3,Summary B,,,,uuid-a,,,uuid-a") != null);
+    try std.testing.expect(std.mem.indexOf(u8, csv, "uuid-b,b.md,tag3,Summary B,,,,uuid-a,,,uuid-a") != null);
 }
 
 test "Graph: detectLouvainCommunities groups connected nodes" {
@@ -1655,4 +1655,186 @@ test "Graph: resolveBacklinks with .md extension stripping" {
     const target = graph.findNodeByTitle("target.md").?;
     try std.testing.expectEqual(@as(usize, 1), target.backlinks.items.len);
     try std.testing.expectEqualStrings("B", target.backlinks.items[0]);
+}
+
+test "Graph: addNode with unique keys adds both" {
+    const allocator = std.testing.allocator;
+    var graph = Graph.init(allocator);
+    defer graph.deinit();
+
+    const node1: parser.Node = .{
+        .path = try allocator.dupe(u8, "first.md"),
+        .title = try allocator.dupe(u8, "First"),
+        .id = try allocator.dupe(u8, "uuid-1"),
+        .content = try allocator.dupe(u8, "content 1"),
+        .links = .{},
+        .backlinks = .{},
+        .tags = .{},
+        .metadata = std.StringHashMap([]const u8).init(allocator),
+    };
+    try graph.addNode(node1);
+
+    const node2: parser.Node = .{
+        .path = try allocator.dupe(u8, "second.md"),
+        .title = try allocator.dupe(u8, "Second"),
+        .id = try allocator.dupe(u8, "uuid-2"),
+        .content = try allocator.dupe(u8, "content 2"),
+        .links = .{},
+        .backlinks = .{},
+        .tags = .{},
+        .metadata = std.StringHashMap([]const u8).init(allocator),
+    };
+    try graph.addNode(node2);
+
+    try std.testing.expectEqual(@as(usize, 2), graph.nodes.count());
+    try std.testing.expect(graph.nodes.get("first.md") != null);
+    try std.testing.expect(graph.nodes.get("second.md") != null);
+}
+
+test "Graph: findNodeByTitle returns null for no match" {
+    const allocator = std.testing.allocator;
+    var graph = Graph.init(allocator);
+    defer graph.deinit();
+
+    const node: parser.Node = .{
+        .path = try allocator.dupe(u8, "a.md"),
+        .title = try allocator.dupe(u8, "Alpha"),
+        .id = try allocator.dupe(u8, "uuid-a"),
+        .content = try allocator.dupe(u8, ""),
+        .links = .{},
+        .backlinks = .{},
+        .tags = .{},
+        .metadata = std.StringHashMap([]const u8).init(allocator),
+    };
+    try graph.addNode(node);
+
+    try std.testing.expect(graph.findNodeByTitle("NonExistent") == null);
+    try std.testing.expect(graph.findNodeByTitle("Alpha") != null);
+}
+
+test "Graph: generateMapCsv escapes commas in path" {
+    const allocator = std.testing.allocator;
+    var graph = Graph.init(allocator);
+    defer graph.deinit();
+
+    var node: parser.Node = .{
+        .path = try allocator.dupe(u8, "path/with,comma.md"),
+        .title = try allocator.dupe(u8, "CommaPath"),
+        .id = try allocator.dupe(u8, "uuid-comma"),
+        .content = try allocator.dupe(u8, ""),
+        .links = .{},
+        .backlinks = .{},
+        .tags = .{},
+        .metadata = std.StringHashMap([]const u8).init(allocator),
+    };
+    try node.metadata.put(try allocator.dupe(u8, "summary"), try allocator.dupe(u8, "A, B, and C"));
+    try graph.addNode(node);
+
+    const csv = try graph.generateMapCsv();
+    defer allocator.free(csv);
+
+    // Path with comma should be quoted
+    try std.testing.expect(std.mem.indexOf(u8, csv, "\"path/with,comma.md\"") != null);
+    // Summary with comma should be quoted
+    try std.testing.expect(std.mem.indexOf(u8, csv, "\"A, B, and C\"") != null);
+}
+
+test "Graph: generateMapCsv with empty optional fields" {
+    const allocator = std.testing.allocator;
+    var graph = Graph.init(allocator);
+    defer graph.deinit();
+
+    const node: parser.Node = .{
+        .path = try allocator.dupe(u8, "minimal.md"),
+        .title = try allocator.dupe(u8, "Minimal"),
+        .id = try allocator.dupe(u8, "uuid-min"),
+        .content = try allocator.dupe(u8, ""),
+        .links = .{},
+        .backlinks = .{},
+        .tags = .{},
+        .metadata = std.StringHashMap([]const u8).init(allocator),
+    };
+    try graph.addNode(node);
+
+    const csv = try graph.generateMapCsv();
+    defer allocator.free(csv);
+
+    // Row should have trailing commas for empty optional fields
+    try std.testing.expect(std.mem.indexOf(u8, csv, "uuid-min,minimal.md,,,,") != null);
+}
+
+test "Graph: computePageRank on single node" {
+    const allocator = std.testing.allocator;
+    var graph = Graph.init(allocator);
+    defer graph.deinit();
+
+    const node: parser.Node = .{
+        .path = try allocator.dupe(u8, "solo.md"),
+        .title = try allocator.dupe(u8, "Solo"),
+        .id = try allocator.dupe(u8, "uuid-solo"),
+        .content = try allocator.dupe(u8, ""),
+        .links = .{},
+        .backlinks = .{},
+        .tags = .{},
+        .metadata = std.StringHashMap([]const u8).init(allocator),
+    };
+    try graph.addNode(node);
+
+    var pr = try graph.computePageRank(10);
+    defer pr.deinit();
+
+    const score = pr.get("Solo").?;
+    // Single node: PR = (1 - damping) / total_nodes = 0.15 / 1 = 0.15
+    try std.testing.expect(@abs(score - 0.15) < 0.01);
+}
+
+test "Graph: detectLouvainCommunities on disconnected graph" {
+    const allocator = std.testing.allocator;
+    var graph = Graph.init(allocator);
+    defer graph.deinit();
+
+    // Two disconnected nodes
+    const node_a: parser.Node = .{
+        .path = try allocator.dupe(u8, "a.md"),
+        .title = try allocator.dupe(u8, "A"),
+        .id = try allocator.dupe(u8, "uuid-a"),
+        .content = try allocator.dupe(u8, ""),
+        .links = .{},
+        .backlinks = .{},
+        .tags = .{},
+        .metadata = std.StringHashMap([]const u8).init(allocator),
+    };
+    const node_b: parser.Node = .{
+        .path = try allocator.dupe(u8, "b.md"),
+        .title = try allocator.dupe(u8, "B"),
+        .id = try allocator.dupe(u8, "uuid-b"),
+        .content = try allocator.dupe(u8, ""),
+        .links = .{},
+        .backlinks = .{},
+        .tags = .{},
+        .metadata = std.StringHashMap([]const u8).init(allocator),
+    };
+    try graph.addNode(node_a);
+    try graph.addNode(node_b);
+
+    var communities = try graph.detectLouvainCommunities(10);
+    defer communities.deinit();
+
+    // Disconnected nodes should be in different communities
+    try std.testing.expectEqual(@as(usize, 2), communities.count());
+    const comm_a = communities.get("A").?;
+    const comm_b = communities.get("B").?;
+    try std.testing.expect(comm_a != comm_b);
+}
+
+test "Graph: getGcReport on empty graph" {
+    const allocator = std.testing.allocator;
+    var graph = Graph.init(allocator);
+    defer graph.deinit();
+
+    var report = try graph.getGcReport(3);
+    defer report.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 0), report.orphans.items.len);
+    try std.testing.expectEqual(@as(usize, 0), report.islands.items.len);
 }

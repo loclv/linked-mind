@@ -16,10 +16,12 @@ The heart of Linked-Mind is the Knowledge Graph:
 - Link Resolution: When querying a node's context, the graph system iterates to find if any other registered node matches the title in a wikilink.
 - Resolution Logic: Currently, it performs a partial title match, making it resilient to slight variations in linking (e.g., `[[My Note]]` matching `path/to/My Note.md`).
 
-### 3. `main.zig`
-The CLI orchestration layer:
-- Global Parser: Efficiently handles common flags (`--tag`, `--status`) across all execution modes.
-- Recursive Walker: Uses `std.fs.Dir.walk` to traverse directories deeply.
+### 3. `li.zig`
+The workspace-aware CLI orchestration layer:
+- Workspace Discovery: `findWorkspaceRoot` walks up from cwd to find `.li/` marker, enabling in-workspace commands without explicit path args.
+- Init: `initWorkspace` creates `.li/` directory with cache storage.
+- Global Parser: Efficiently handles common flags (`--tag`, `--status`, `--threshold`) across all execution modes.
+- Recursive Walker: Uses `std.fs.Dir.walk` to traverse directories deeply, skipping hidden dirs (`.li`, `.git`).
 - Filtered Dumps: The terminal output can be scoped using tags to preview context before a full export.
 - Memory Management: Implements a `GeneralPurposeAllocator` with full leak detection to ensure a clean exit after scanning thousands of files.
 
@@ -30,7 +32,7 @@ The browser UI implementation:
 - Rich Aesthetics: Built with modern Glassmorphism logic, tailored interactions, animations, and node-tracking sidebars.
 - Incremental Awareness: Uses the `Cache` module to skip unchanged files by checking `mtime` and content hashes.
 
-### 4. `cache.zig`
+### 5. `cache.zig`
 The incremental scanning engine:
 - Persisted State: Saves file metadata and parsed results into `cache.json`.
 - Double-Check: Uses file modification times (`mtime`) for fast skips and SHA-256 content hashes for accuracy.
@@ -46,5 +48,5 @@ Linked-Mind is designed to be extremely memory-efficient:
 - [x] Frontmatter Support: Parsing YAML metadata (Tags, Status) for complex relationship types.
 - [x] Bidirectional Links: Automatically identifying what notes link to the current note (backlinks).
 - [x] Inverted Index: For even faster link resolution in Massive KBs.
-- [ ] Tree-shaking: Excluding orphan nodes that have no links or tags for cleaner AI input.
+- [x] Tree-shaking: `gc` command identifies orphan and island nodes for cleanup.
 - [x] Web UI: Interactive Force-Graph visualization of the generated graph context via exportable JSON.

@@ -22,46 +22,55 @@ Instead of feeding an AI random files, Linked-Mind helps the LLM understand how 
 ```bash
 zig build
 ```
+This produces the `li` binary in `zig-out/bin/`. You can link it to your path for easy access.
 
-#### 1. Scan & Analysis
-See a detailed breakdown of your knowledge graph directly in the terminal. You can filter by tags or status:
+### 1. Workspace Initialization
+Initialize a directory as a Linked-Mind workspace. This creates a `.li/` folder to store cache and configuration.
 ```bash
-# Basic scan
-zig build run -- scan ./your_notes
-
-# Filtered scan
-zig build run -- scan ./your_notes --tag work --status active
+# In your notes directory
+li init
 ```
 
-#### 2. LLM Export (The "Power Move")
-Generate a single file that tells the LLM exactly how your notes connect. Filters are also supported here:
+### 2. Scan & Analysis
+Scan the workspace and update the graph cache.
 ```bash
-zig build run -- export ./your_notes --tag research --status completed
-```
-This creates `llm_knowledge.md` in the current directory.
+li scan
 
-#### 3. Advanced Analysis
-- Graph Traversal: Find the shortest path between two concepts.
+# Filtered view
+li scan --tag work --status active
+```
+
+### 3. LLM Export (The "Power Move")
+Generate `llm_knowledge.md` in your workspace root.
+```bash
+li export --tag research --status completed
+```
+
+### 4. Advanced Analysis
+- Graph Traversal: Find connections between concepts.
   ```bash
-  zig build run -- path ./your_notes "Quantum Computing" "Shor's Algorithm"
+  li path "Quantum Computing" "Shor's Algorithm"
   ```
-- Community Detection: Generate a "Map of Content" (MOC) using Louvain modularity-based clustering.
+- Community Detection: Generate `map.csv`.
   ```bash
-  zig build run -- clusters ./your_notes
+  li clusters
   ```
-- Similarity Search: Find nodes related to a specific topic (even without explicit links).
+- Similarity Search: Find related nodes.
   ```bash
-  zig build run -- similar ./your_notes "Artificial Intelligence"
+  li similar "Artificial Intelligence"
   ```
-- Link Suggestion: Discover missing connections between content-similar notes.
+- Link Suggestion: Discover missing connections.
   ```bash
-  zig build run -- suggest ./your_notes --threshold 0.1
+  li suggest --threshold 0.1
   ```
-- Interactive Web Visualization: Export your graph to JSON and view it in a sleek interactive web dashboard.
+- Knowledge GC: Find orphans and islands.
   ```bash
-  zig build run -- visualize ./your_notes
+  li gc --threshold 3
   ```
-  *(Then start a local server like `bunx serve .` and open the local address)*
+- Interactive Visualization: Export `graph.json`.
+  ```bash
+  li visualize
+  ```
 
 ## 🧠 Why Graph-based KB for LLMs?
 
@@ -73,6 +82,8 @@ Standard RAG (Retrieval-Augmented Generation) often treats files as isolated chu
 
 - `src/parser.zig`: Optimized scanner for `[[links]]` and `#tags`.
 - `src/graph.zig`: Adjacency-list based graph representation and link resolver.
-- `src/main.zig`: CLI handler for scan/export modes.
+- `src/li.zig`: Workspace-aware CLI with `init`, `scan`, `export`, `path`, `clusters`, `gc`, `similar`, `suggest`, `visualize`.
+- `src/cache.zig`: Incremental scanning engine with `mtime` + SHA-256 cache.
+- `src/main.zig`: Legacy CLI handler (direct path mode).
 
 Built with speed and precision in Zig.

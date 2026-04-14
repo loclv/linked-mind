@@ -23,6 +23,7 @@ Beyond simple exports, you can use specialized commands to generate custom conte
 - Path Context: Finding the path between Node A and B provides the AI with the logical bridge connecting two distinct domains.
 - Cluster Discovery: Running `clusters` helps you identify "islands" of knowledge that might need more internal links or better organization for the AI to understand the global structure.
 - Similarity Mapping: Use `similar` to find related notes that the AI should consider even if they haven't been explicitly linked yet.
+- Knowledge GC: Run `gc --threshold 3` to identify orphan notes (no links) and small islands (tiny disconnected clusters). Clean these up before exporting to reduce noise for the LLM.
 - Visual Debugging: Run `visualize` to spin up a browser-based visualization of your notes. Ensure your context islands are explicitly bridged before feeding them into an LLM.
 - Graph Auditing: Use the `visualize` command to see a 3D force-directed map of your brain. Use this to identify "disconnected islands" or "over-connected hubs" before exporting to the LLM.
 
