@@ -139,23 +139,24 @@ pub const Node = struct {
 /// synchronize access.
 pub const Parser = struct {
     allocator: std.mem.Allocator,
+    io: std.Io,
 
-    pub fn init(allocator: std.mem.Allocator) Parser {
-        return .{ .allocator = allocator };
+    pub fn init(allocator: std.mem.Allocator, io: std.Io) Parser {
+        return .{ .allocator = allocator, .io = io };
     }
 
     /// Generate a UUID v4 string (36 chars: 8-4-4-4-12 format)
     /// Uses crypto-secure random bytes for uniqueness
     fn generateUuid(self: *Parser) ![]const u8 {
         var uuid_bytes: [16]u8 = undefined;
-        std.crypto.random.bytes(&uuid_bytes);
+        try self.io.randomSecure(&uuid_bytes);
 
         // Set version (4) and variant bits per RFC 4122
         uuid_bytes[6] = (uuid_bytes[6] & 0x0f) | 0x40; // version 4
         uuid_bytes[8] = (uuid_bytes[8] & 0x3f) | 0x80; // variant 1
 
         // Format: 8-4-4-4-12 (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)
-        var buf: std.ArrayList(u8) = .{};
+        var buf: std.ArrayList(u8) = .empty;
         defer buf.deinit(self.allocator);
 
         const hex_chars = "0123456789abcdef";
@@ -176,10 +177,12 @@ pub const Parser = struct {
     /// 1MB limit prevents memory exhaustion from accidentally parsing binary files
     /// or extremely large documents. Most knowledge base notes are <100KB.
     pub fn parseFile(self: *Parser, path: []const u8) !Node {
-        const file = try std.fs.cwd().openFile(path, .{});
-        defer file.close();
+        const file = try std.Io.Dir.cwd().openFile(self.io, path, .{});
+        defer file.close(self.io);
 
-        const content = try file.readToEndAlloc(self.allocator, 1024 * 1024); // max 1MB
+        var read_buf: [8192]u8 = undefined;
+        var file_reader = file.reader(self.io, &read_buf);
+        const content = try file_reader.interface.allocRemaining(self.allocator, .limited(1024 * 1024)); // max 1MB
         defer self.allocator.free(content);
 
         return self.parseContent(path, content);
@@ -203,9 +206,9 @@ pub const Parser = struct {
             .title = try self.allocator.dupe(u8, std.fs.path.basename(path)),
             .id = try self.generateUuid(),
             .content = try self.allocator.dupe(u8, content),
-            .links = .{},
-            .backlinks = .{},
-            .tags = .{},
+            .links = .empty,
+            .backlinks = .empty,
+            .tags = .empty,
             .metadata = std.StringHashMap([]const u8).init(self.allocator),
         };
         errdefer node.deinit(self.allocator);
@@ -310,9 +313,14 @@ pub const Parser = struct {
 // Naming convention: "Parser: <feature> <variant>"
 // Tests verify both happy path and edge cases/limitations.
 
+var test_threaded_io = std.Io.Threaded.global_single_threaded;
+fn getTestIo() std.Io {
+    return test_threaded_io.io();
+}
+
 test "Parser: basic parsing" {
     const allocator = std.testing.allocator;
-    var parser = Parser.init(allocator);
+    var parser = Parser.init(allocator, getTestIo());
 
     const content = "Hello world";
     var node = try parser.parseContent("test.md", content);
@@ -328,7 +336,7 @@ test "Parser: basic parsing" {
 
 test "Parser: frontmatter" {
     const allocator = std.testing.allocator;
-    var parser = Parser.init(allocator);
+    var parser = Parser.init(allocator, getTestIo());
 
     const content =
         \\---
@@ -347,7 +355,7 @@ test "Parser: frontmatter" {
 
 test "Parser: wikilinks" {
     const allocator = std.testing.allocator;
-    var parser = Parser.init(allocator);
+    var parser = Parser.init(allocator, getTestIo());
 
     const content = "Check [[Other File]] and [[supports::Feature]]";
     var node = try parser.parseContent("test.md", content);
@@ -363,7 +371,7 @@ test "Parser: wikilinks" {
 
 test "Parser: tags" {
     const allocator = std.testing.allocator;
-    var parser = Parser.init(allocator);
+    var parser = Parser.init(allocator, getTestIo());
 
     const content = "This is #important and #urgent, but not #. or # alone";
     var node = try parser.parseContent("test.md", content);
@@ -376,7 +384,7 @@ test "Parser: tags" {
 
 test "Parser: tags vs markdown headers" {
     const allocator = std.testing.allocator;
-    var parser = Parser.init(allocator);
+    var parser = Parser.init(allocator, getTestIo());
 
     const content =
         \\## Heading 1
@@ -396,7 +404,7 @@ test "Parser: tags vs markdown headers" {
 
 test "Parser: complex combination" {
     const allocator = std.testing.allocator;
-    var parser = Parser.init(allocator);
+    var parser = Parser.init(allocator, getTestIo());
 
     const content =
         \\---
@@ -425,7 +433,7 @@ test "Parser: complex combination" {
 
 test "Parser: empty content" {
     const allocator = std.testing.allocator;
-    var parser = Parser.init(allocator);
+    var parser = Parser.init(allocator, getTestIo());
 
     var node = try parser.parseContent("empty.md", "");
     defer node.deinit(allocator);
@@ -438,7 +446,7 @@ test "Parser: empty content" {
 
 test "Parser: multiple wikilinks same line" {
     const allocator = std.testing.allocator;
-    var parser = Parser.init(allocator);
+    var parser = Parser.init(allocator, getTestIo());
 
     const content = "See [[A]], [[B]], and [[C]] all here.";
     var node = try parser.parseContent("test.md", content);
@@ -452,7 +460,7 @@ test "Parser: multiple wikilinks same line" {
 
 test "Parser: wikilink with spaces in target" {
     const allocator = std.testing.allocator;
-    var parser = Parser.init(allocator);
+    var parser = Parser.init(allocator, getTestIo());
 
     const content = "Link to [[My File Name]] and [[type::Some Target]]";
     var node = try parser.parseContent("test.md", content);
@@ -466,7 +474,7 @@ test "Parser: wikilink with spaces in target" {
 
 test "Parser: frontmatter with colons in value" {
     const allocator = std.testing.allocator;
-    var parser = Parser.init(allocator);
+    var parser = Parser.init(allocator, getTestIo());
 
     // Note: Parser splits on first ":", so values with colons are truncated
     // This test documents current behavior (limitation)
@@ -487,7 +495,7 @@ test "Parser: frontmatter with colons in value" {
 
 test "Parser: frontmatter with empty value" {
     const allocator = std.testing.allocator;
-    var parser = Parser.init(allocator);
+    var parser = Parser.init(allocator, getTestIo());
 
     const content =
         \\---
@@ -505,7 +513,7 @@ test "Parser: frontmatter with empty value" {
 
 test "Parser: tags with special characters" {
     const allocator = std.testing.allocator;
-    var parser = Parser.init(allocator);
+    var parser = Parser.init(allocator, getTestIo());
 
     const content = "Tags: #tag_name #tag-name #tag123 #TAG_UPPER";
     var node = try parser.parseContent("test.md", content);
@@ -520,7 +528,7 @@ test "Parser: tags with special characters" {
 
 test "Parser: tag at line boundaries" {
     const allocator = std.testing.allocator;
-    var parser = Parser.init(allocator);
+    var parser = Parser.init(allocator, getTestIo());
 
     const content =
         \\#first
@@ -538,7 +546,7 @@ test "Parser: tag at line boundaries" {
 
 test "Parser: unclosed wikilink ignored" {
     const allocator = std.testing.allocator;
-    var parser = Parser.init(allocator);
+    var parser = Parser.init(allocator, getTestIo());
 
     const content = "This [[unclosed link should be ignored";
     var node = try parser.parseContent("test.md", content);
@@ -549,7 +557,7 @@ test "Parser: unclosed wikilink ignored" {
 
 test "Parser: nested brackets in wikilink" {
     const allocator = std.testing.allocator;
-    var parser = Parser.init(allocator);
+    var parser = Parser.init(allocator, getTestIo());
 
     // Note: Parser finds first "]]" - doesn't handle nested brackets
     // This test documents current behavior (limitation)
@@ -564,7 +572,7 @@ test "Parser: nested brackets in wikilink" {
 
 test "Parser: Node.clone deep copies all fields" {
     const allocator = std.testing.allocator;
-    var parser = Parser.init(allocator);
+    var parser = Parser.init(allocator, getTestIo());
 
     const content = "Link [[Target]] with #tag";
     var original = try parser.parseContent("original.md", content);
@@ -589,7 +597,7 @@ test "Parser: Node.clone deep copies all fields" {
 
 test "Parser: wikilink with multiple colons" {
     const allocator = std.testing.allocator;
-    var parser = Parser.init(allocator);
+    var parser = Parser.init(allocator, getTestIo());
 
     const content = "Link [[nature::type::Target]] here";
     var node = try parser.parseContent("test.md", content);
@@ -603,7 +611,7 @@ test "Parser: wikilink with multiple colons" {
 
 test "Parser: only frontmatter no content" {
     const allocator = std.testing.allocator;
-    var parser = Parser.init(allocator);
+    var parser = Parser.init(allocator, getTestIo());
 
     const content =
         \\---
@@ -620,7 +628,7 @@ test "Parser: only frontmatter no content" {
 
 test "Parser: incomplete frontmatter ignored" {
     const allocator = std.testing.allocator;
-    var parser = Parser.init(allocator);
+    var parser = Parser.init(allocator, getTestIo());
 
     const content =
         \\---
@@ -636,7 +644,7 @@ test "Parser: incomplete frontmatter ignored" {
 
 test "Parser: tag followed by punctuation" {
     const allocator = std.testing.allocator;
-    var parser = Parser.init(allocator);
+    var parser = Parser.init(allocator, getTestIo());
 
     const content = "This is #important, and #urgent.";
     var node = try parser.parseContent("test.md", content);
@@ -649,7 +657,7 @@ test "Parser: tag followed by punctuation" {
 
 test "Parser: multiple frontmatter keys with spaces" {
     const allocator = std.testing.allocator;
-    var parser = Parser.init(allocator);
+    var parser = Parser.init(allocator, getTestIo());
 
     const content =
         \\---
@@ -668,7 +676,7 @@ test "Parser: multiple frontmatter keys with spaces" {
 
 test "Parser: consecutive tags" {
     const allocator = std.testing.allocator;
-    var parser = Parser.init(allocator);
+    var parser = Parser.init(allocator, getTestIo());
 
     const content = "#a #b #c";
     var node = try parser.parseContent("test.md", content);
@@ -682,7 +690,7 @@ test "Parser: consecutive tags" {
 
 test "Parser: wikilink with trimmed whitespace" {
     const allocator = std.testing.allocator;
-    var parser = Parser.init(allocator);
+    var parser = Parser.init(allocator, getTestIo());
 
     const content = "Link [[  spaced target  ]] and [[  nature  ::  target  ]]";
     var node = try parser.parseContent("test.md", content);

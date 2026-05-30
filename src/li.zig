@@ -25,28 +25,20 @@ const usage =
     \\
 ;
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
 
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
-
-    if (args.len < 2) {
-        std.debug.print("{s}", .{usage});
-        return;
-    }
+    const args = try init.minimal.args.toSlice(init.arena.allocator());
 
     const cmd = args[1];
 
     if (std.mem.eql(u8, cmd, "init")) {
         const target_path = if (args.len > 2) args[2] else ".";
-        try initWorkspace(allocator, target_path);
+        try initWorkspace(allocator, init.io, target_path);
         return;
     }
 
-    const ws_root = findWorkspaceRoot(allocator) catch |err| {
+    const ws_root = findWorkspaceRoot(allocator, init.io) catch |err| {
         if (err == error.NoWorkspaceFound) {
             std.debug.print("Fatal: Not in a Linked-Mind workspace. Run 'li init' to create one.\n", .{});
             std.process.exit(1);
@@ -55,14 +47,15 @@ pub fn main() !void {
     };
     defer allocator.free(ws_root);
 
-    try runCommand(allocator, cmd, ws_root, args[2..]);
+    try runCommand(allocator, init.io, cmd, ws_root, args[2..]);
 }
 
-fn initWorkspace(_: std.mem.Allocator, path: []const u8) !void {
-    var dir = try std.fs.cwd().makeOpenPath(path, .{});
-    defer dir.close();
+fn initWorkspace(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !void {
+    _ = allocator;
+    var dir = try std.Io.Dir.cwd().createDirPathOpen(io, path, .{});
+    defer dir.close(io);
 
-    dir.makeDir(".li") catch |err| {
+    dir.createDir(io, ".li", .default_dir) catch |err| {
         if (err == error.PathAlreadyExists) {
             std.debug.print("Reinitialized existing Linked-Mind workspace in {s}/.li/\n", .{path});
             return;
@@ -73,17 +66,17 @@ fn initWorkspace(_: std.mem.Allocator, path: []const u8) !void {
     std.debug.print("Initialized empty Linked-Mind workspace in {s}/.li/\n", .{path});
 }
 
-fn findWorkspaceRoot(allocator: std.mem.Allocator) ![]const u8 {
-    var current_path = try std.fs.cwd().realpathAlloc(allocator, ".");
+fn findWorkspaceRoot(allocator: std.mem.Allocator, io: std.Io) ![]const u8 {
+    var current_path = try std.Io.Dir.cwd().realPathFileAlloc(io, ".", allocator);
 
     while (true) {
-        var dir = std.fs.openDirAbsolute(current_path, .{}) catch break;
-        defer dir.close();
+        var dir = std.Io.Dir.openDirAbsolute(io, current_path, .{}) catch break;
+        defer dir.close(io);
 
-        dir.access(".li", .{}) catch {
+        dir.access(io, ".li", .{}) catch {
             const parent = std.fs.path.dirname(current_path);
             if (parent == null or std.mem.eql(u8, parent.?, current_path)) break;
-            const next_path = try allocator.dupe(u8, parent.?);
+            const next_path = try allocator.dupeZ(u8, parent.?);
             allocator.free(current_path);
             current_path = next_path;
             continue;
@@ -95,11 +88,11 @@ fn findWorkspaceRoot(allocator: std.mem.Allocator) ![]const u8 {
     return error.NoWorkspaceFound;
 }
 
-fn runCommand(allocator: std.mem.Allocator, cmd: []const u8, ws_root: []const u8, args: [][:0]u8) !void {
+fn runCommand(allocator: std.mem.Allocator, io: std.Io, cmd: []const u8, ws_root: []const u8, args: []const [:0]const u8) !void {
     var kb_graph = graph.Graph.init(allocator);
     defer kb_graph.deinit();
 
-    var kb_parser = parser.Parser.init(allocator);
+    var kb_parser = parser.Parser.init(allocator, io);
 
     var filter_tag: ?[]const u8 = null;
     var filter_status: ?[]const u8 = null;
@@ -124,15 +117,15 @@ fn runCommand(allocator: std.mem.Allocator, cmd: []const u8, ws_root: []const u8
         }
     }
 
-    var kb_dir = try std.fs.openDirAbsolute(ws_root, .{ .iterate = true });
-    defer kb_dir.close();
+    var kb_dir = try std.Io.Dir.openDirAbsolute(io, ws_root, .{ .iterate = true });
+    defer kb_dir.close(io);
 
     const cache_path = try std.fs.path.join(allocator, &[_][]const u8{ ws_root, ".li", "cache.json" });
     defer allocator.free(cache_path);
 
     var kb_cache = cache.Cache.init(allocator);
     defer kb_cache.deinit();
-    kb_cache.load(cache_path) catch |err| {
+    kb_cache.load(io, cache_path) catch |err| {
         if (err != error.FileNotFound) {
             std.debug.print("Note: Could not load cache: {any}. Starting fresh.\n", .{err});
         }
@@ -144,7 +137,7 @@ fn runCommand(allocator: std.mem.Allocator, cmd: []const u8, ws_root: []const u8
     var walker = try kb_dir.walk(allocator);
     defer walker.deinit();
 
-    while (try walker.next()) |entry| {
+    while (try walker.next(io)) |entry| {
         // Skip .li and other hidden dirs
         if (std.mem.startsWith(u8, entry.path, ".li") or std.mem.startsWith(u8, entry.path, ".")) continue;
 
@@ -152,15 +145,15 @@ fn runCommand(allocator: std.mem.Allocator, cmd: []const u8, ws_root: []const u8
             const absolute_path = try std.fs.path.join(allocator, &[_][]const u8{ ws_root, entry.path });
             defer allocator.free(absolute_path);
 
-            const stat = try kb_dir.statFile(entry.path);
-            const mtime = stat.mtime;
+            const stat = try kb_dir.statFile(io, entry.path, .{});
+            const mtime = @as(i128, stat.mtime.toNanoseconds());
 
             var cached_entry: ?*cache.CacheEntry = null;
             if (kb_cache.entries.getPtr(absolute_path)) |cached| {
                 if (cached.mtime == mtime) {
                     cached_entry = cached;
                 } else {
-                    const hash = try calculateHash(absolute_path);
+                    const hash = try calculateHash(io, absolute_path);
                     if (std.mem.eql(u8, &hash, &cached.hash)) {
                         cached_entry = cached;
                         cached_entry.?.*.mtime = mtime;
@@ -177,7 +170,7 @@ fn runCommand(allocator: std.mem.Allocator, cmd: []const u8, ws_root: []const u8
                 });
             } else {
                 const node = try kb_parser.parseFile(absolute_path);
-                const hash = try calculateHash(absolute_path);
+                const hash = try calculateHash(io, absolute_path);
                 try kb_graph.addNode(try node.clone(allocator));
                 try new_cache.entries.put(try allocator.dupe(u8, absolute_path), .{
                     .mtime = mtime,
@@ -188,7 +181,7 @@ fn runCommand(allocator: std.mem.Allocator, cmd: []const u8, ws_root: []const u8
         }
     }
 
-    try new_cache.save(cache_path);
+    try new_cache.save(io, cache_path);
 
     try kb_graph.resolveBacklinks();
     var pr_scores = try kb_graph.computePageRank(10);
@@ -200,13 +193,13 @@ fn runCommand(allocator: std.mem.Allocator, cmd: []const u8, ws_root: []const u8
         const export_path = try std.fs.path.join(allocator, &[_][]const u8{ ws_root, "llm_knowledge.md" });
         defer allocator.free(export_path);
 
-        var bundle: std.ArrayList(u8) = .{};
-        defer bundle.deinit(allocator);
+        var bundle = std.Io.Writer.Allocating.init(allocator);
+        defer bundle.deinit();
 
-        try bundle.writer(allocator).print("# LLM Knowledge Bundle\nGenerated on: 2026-04-10\n", .{});
-        if (filter_tag) |t| try bundle.writer(allocator).print("Filter Tag: {s}\n", .{t});
-        if (filter_status) |s| try bundle.writer(allocator).print("Filter Status: {s}\n", .{s});
-        try bundle.writer(allocator).print("\n", .{});
+        try bundle.writer.print("# LLM Knowledge Bundle\nGenerated on: 2026-04-10\n", .{});
+        if (filter_tag) |t| try bundle.writer.print("Filter Tag: {s}\n", .{t});
+        if (filter_status) |s| try bundle.writer.print("Filter Status: {s}\n", .{s});
+        try bundle.writer.print("\n", .{});
 
         var iter = kb_graph.nodes.iterator();
         while (iter.next()) |entry| {
@@ -229,10 +222,12 @@ fn runCommand(allocator: std.mem.Allocator, cmd: []const u8, ws_root: []const u8
             const ctx = try kb_graph.getContext(entry.key_ptr.*);
             defer allocator.free(ctx);
             const rank = pr_scores.get(node.title) orelse 0.0;
-            try bundle.writer(allocator).print("**PageRank:** {d:.4}\n", .{rank});
-            try bundle.writer(allocator).print("---\n{s}\n", .{ctx});
+            try bundle.writer.print("**PageRank:** {d:.4}\n", .{rank});
+            try bundle.writer.print("---\n{s}\n", .{ctx});
         }
-        try std.fs.cwd().writeFile(.{ .sub_path = export_path, .data = bundle.items });
+        const bundle_data = try bundle.toOwnedSlice();
+        defer allocator.free(bundle_data);
+        try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = export_path, .data = bundle_data });
         std.debug.print("Knowledge bundle written to {s}\n", .{export_path});
     } else if (std.mem.eql(u8, cmd, "path")) {
         if (args.len < 2) {
@@ -257,7 +252,7 @@ fn runCommand(allocator: std.mem.Allocator, cmd: []const u8, ws_root: []const u8
         defer allocator.free(csv);
         const csv_path = try std.fs.path.join(allocator, &[_][]const u8{ ws_root, "map.csv" });
         defer allocator.free(csv_path);
-        try std.fs.cwd().writeFile(.{ .sub_path = csv_path, .data = csv });
+        try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = csv_path, .data = csv });
         std.debug.print("Map written to {s}\n", .{csv_path});
     } else if (std.mem.eql(u8, cmd, "gc")) {
         var report = try kb_graph.getGcReport(threshold);
@@ -289,20 +284,20 @@ fn runCommand(allocator: std.mem.Allocator, cmd: []const u8, ws_root: []const u8
         defer allocator.free(json);
         const json_path = try std.fs.path.join(allocator, &[_][]const u8{ ws_root, "graph.json" });
         defer allocator.free(json_path);
-        try std.fs.cwd().writeFile(.{ .sub_path = json_path, .data = json });
+        try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = json_path, .data = json });
         std.debug.print("Visualizer data written to {s}\n", .{json_path});
     } else if (std.mem.eql(u8, cmd, "watch")) {
         const watch_path_raw = if (args.len > 0) args[0] else ws_root;
-        const watch_path = try std.fs.cwd().realpathAlloc(allocator, watch_path_raw);
+        const watch_path = try std.Io.Dir.cwd().realPathFileAlloc(io, watch_path_raw, allocator);
         defer allocator.free(watch_path);
-        try watchWorkspace(allocator, watch_path);
+        try watchWorkspace(allocator, io, watch_path);
     } else {
         std.debug.print("Unknown command: {s}\n{s}", .{ cmd, usage });
     }
 }
 
-fn watchWorkspace(allocator: std.mem.Allocator, watch_path: []const u8) !void {
-    var kb_parser = parser.Parser.init(allocator);
+fn watchWorkspace(allocator: std.mem.Allocator, io: std.Io, watch_path: []const u8) !void {
+    var kb_parser = parser.Parser.init(allocator, io);
     var known_files = std.StringHashMap(i128).init(allocator);
     defer {
         var iter = known_files.iterator();
@@ -312,23 +307,23 @@ fn watchWorkspace(allocator: std.mem.Allocator, watch_path: []const u8) !void {
 
     // Pre-scan to populate known_files
     {
-        var watch_dir = try std.fs.openDirAbsolute(watch_path, .{ .iterate = true });
-        defer watch_dir.close();
+        var watch_dir = try std.Io.Dir.openDirAbsolute(io, watch_path, .{ .iterate = true });
+        defer watch_dir.close(io);
         var walker = try watch_dir.walk(allocator);
         defer walker.deinit();
-        while (try walker.next()) |entry| {
+        while (try walker.next(io)) |entry| {
             if (std.mem.startsWith(u8, entry.path, ".li") or std.mem.startsWith(u8, entry.path, ".")) continue;
 
             if (entry.kind == .file and std.mem.endsWith(u8, entry.basename, ".md")) {
                 const abs_path = try std.fs.path.join(allocator, &[_][]const u8{ watch_path, entry.path });
-                const stat = watch_dir.statFile(entry.path) catch |err| {
+                const stat = watch_dir.statFile(io, entry.path, .{}) catch |err| {
                     if (err == error.FileNotFound) {
                         allocator.free(abs_path);
                         continue;
                     }
                     return err;
                 };
-                try known_files.put(abs_path, stat.mtime);
+                try known_files.put(abs_path, @as(i128, stat.mtime.toNanoseconds()));
             }
         }
     }
@@ -343,29 +338,29 @@ fn watchWorkspace(allocator: std.mem.Allocator, watch_path: []const u8) !void {
             current_files.deinit();
         }
 
-        var watch_dir = std.fs.openDirAbsolute(watch_path, .{ .iterate = true }) catch |err| {
+        var watch_dir = std.Io.Dir.openDirAbsolute(io, watch_path, .{ .iterate = true }) catch |err| {
             std.debug.print("Error opening watch directory: {any}\n", .{err});
-            std.Thread.sleep(1 * std.time.ns_per_s);
+            try std.Io.sleep(io, std.Io.Duration.fromSeconds(1), .awake);
             continue;
         };
-        defer watch_dir.close();
+        defer watch_dir.close(io);
 
         var walker = try watch_dir.walk(allocator);
         defer walker.deinit();
 
-        while (try walker.next()) |entry| {
+        while (try walker.next(io)) |entry| {
             if (std.mem.startsWith(u8, entry.path, ".li") or std.mem.startsWith(u8, entry.path, ".")) continue;
 
             if (entry.kind == .file and std.mem.endsWith(u8, entry.basename, ".md")) {
                 const abs_path = try std.fs.path.join(allocator, &[_][]const u8{ watch_path, entry.path });
-                const stat = watch_dir.statFile(entry.path) catch |err| {
+                const stat = watch_dir.statFile(io, entry.path, .{}) catch |err| {
                     if (err == error.FileNotFound) {
                         allocator.free(abs_path);
                         continue;
                     }
                     return err;
                 };
-                try current_files.put(abs_path, stat.mtime);
+                try current_files.put(abs_path, @as(i128, stat.mtime.toNanoseconds()));
             }
         }
 
@@ -413,7 +408,7 @@ fn watchWorkspace(allocator: std.mem.Allocator, watch_path: []const u8) !void {
             try known_files.put(try allocator.dupe(u8, entry.key_ptr.*), entry.value_ptr.*);
         }
 
-        std.Thread.sleep(1 * std.time.ns_per_s);
+        try std.Io.sleep(io, std.Io.Duration.fromSeconds(1), .awake);
     }
 }
 
@@ -440,13 +435,17 @@ fn serializeNodeToDebug(node: parser.Node) void {
     std.debug.print("]}}", .{});
 }
 
-fn calculateHash(path: []const u8) ![32]u8 {
-    const file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
+fn calculateHash(io: std.Io, path: []const u8) ![32]u8 {
+    const file = try std.Io.Dir.cwd().openFile(io, path, .{});
+    defer file.close(io);
+
     var hash = std.crypto.hash.sha2.Sha256.init(.{});
-    var buffer: [8192]u8 = undefined;
+    var read_buf: [8192]u8 = undefined;
+    var file_reader = file.reader(io, &read_buf);
+
+    var buffer: [4096]u8 = undefined;
     while (true) {
-        const bytes_read = try file.read(&buffer);
+        const bytes_read = try file_reader.interface.readSliceShort(&buffer);
         if (bytes_read == 0) break;
         hash.update(buffer[0..bytes_read]);
     }

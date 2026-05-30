@@ -30,14 +30,16 @@ pub const Cache = struct {
         self.* = undefined;
     }
 
-    pub fn load(self: *Cache, path: []const u8) !void {
-        const file = std.fs.cwd().openFile(path, .{}) catch |err| {
+    pub fn load(self: *Cache, io: std.Io, path: []const u8) !void {
+        const file = std.Io.Dir.cwd().openFile(io, path, .{}) catch |err| {
             if (err == error.FileNotFound) return;
             return err;
         };
-        defer file.close();
+        defer file.close(io);
 
-        const content = try file.readToEndAlloc(self.allocator, 10 * 1024 * 1024); // 10MB cache limit
+        var read_buf: [8192]u8 = undefined;
+        var file_reader = file.reader(io, &read_buf);
+        const content = try file_reader.interface.allocRemaining(self.allocator, .limited(10 * 1024 * 1024)); // 10MB cache limit
         defer self.allocator.free(content);
 
         const parsed = try std.json.parseFromSlice(std.json.Value, self.allocator, content, .{});
@@ -85,9 +87,9 @@ pub const Cache = struct {
             .title = try self.allocator.dupe(u8, if (obj.get("title")) |t| t.string else ""),
             .id = try self.allocator.dupe(u8, if (obj.get("id")) |i| i.string else ""),
             .content = try self.allocator.dupe(u8, if (obj.get("content")) |c| c.string else ""),
-            .links = .{},
-            .backlinks = .{},
-            .tags = .{},
+            .links = .empty,
+            .backlinks = .empty,
+            .tags = .empty,
             .metadata = std.StringHashMap([]const u8).init(self.allocator),
         };
 
@@ -131,28 +133,34 @@ pub const Cache = struct {
         return node;
     }
 
-    pub fn save(self: *Cache, path: []const u8) !void {
-        var file = try std.fs.cwd().createFile(path, .{});
-        defer file.close();
+    pub fn save(self: *Cache, io: std.Io, path: []const u8) !void {
+        var file = try std.Io.Dir.cwd().createFile(io, path, .{});
+        defer file.close(io);
 
-        var out_list: std.ArrayList(u8) = .{};
-        defer out_list.deinit(self.allocator);
+        var writer: std.Io.Writer.Allocating = .init(self.allocator);
+        defer writer.deinit();
 
-        var writer = out_list.writer(self.allocator);
-        try writer.writeAll("{\"version\": 1, \"files\": {");
+        try writer.writer.writeAll("{\"version\": 1, \"files\": {");
 
         var first = true;
         var iter = self.entries.iterator();
         while (iter.next()) |entry| {
-            if (!first) try writer.writeAll(",");
+            if (!first) try writer.writer.writeAll(",");
             first = false;
 
-            try writer.print("\"{s}\": ", .{entry.key_ptr.*});
-            try self.serializeEntry(writer, entry.value_ptr.*);
+            try writer.writer.print("\"{s}\": ", .{entry.key_ptr.*});
+            try self.serializeEntry(&writer.writer, entry.value_ptr.*);
         }
 
-        try writer.writeAll("}}");
-        try file.writeAll(out_list.items);
+        try writer.writer.writeAll("}}");
+
+        const data = try writer.toOwnedSlice();
+        defer self.allocator.free(data);
+
+        var write_buf: [8192]u8 = undefined;
+        var file_writer = file.writer(io, &write_buf);
+        try file_writer.interface.writeAll(data);
+        try file_writer.flush();
     }
 
     fn serializeEntry(self: *Cache, writer: anytype, entry: CacheEntry) !void {
@@ -202,6 +210,11 @@ pub const Cache = struct {
     }
 };
 
+var test_threaded_io = std.Io.Threaded.global_single_threaded;
+fn getTestIo() std.Io {
+    return test_threaded_io.io();
+}
+
 test "Cache: save and load round-trip" {
     const allocator = std.testing.allocator;
     var cache = Cache.init(allocator);
@@ -212,9 +225,9 @@ test "Cache: save and load round-trip" {
         .title = try allocator.dupe(u8, "Test Title"),
         .id = try allocator.dupe(u8, "test-uuid-1234"),
         .content = try allocator.dupe(u8, "Test content"),
-        .links = .{},
-        .backlinks = .{},
-        .tags = .{},
+        .links = .empty,
+        .backlinks = .empty,
+        .tags = .empty,
         .metadata = std.StringHashMap([]const u8).init(allocator),
     };
     try node.tags.append(allocator, try allocator.dupe(u8, "tag1"));
@@ -231,13 +244,13 @@ test "Cache: save and load round-trip" {
     });
 
     const cache_path = "test_cache.json";
-    try cache.save(cache_path);
-    defer std.fs.cwd().deleteFile(cache_path) catch {};
+    try cache.save(getTestIo(), cache_path);
+    defer std.Io.Dir.cwd().deleteFile(getTestIo(), cache_path) catch {};
 
     var new_cache = Cache.init(allocator);
     defer new_cache.deinit();
 
-    try new_cache.load(cache_path);
+    try new_cache.load(getTestIo(), cache_path);
 
     try std.testing.expectEqual(@as(u32, 1), new_cache.entries.count());
     const entry = new_cache.entries.get("test.md").?;
@@ -255,13 +268,13 @@ test "Cache: empty cache save and load" {
     defer cache.deinit();
 
     const cache_path = "test_empty_cache.json";
-    try cache.save(cache_path);
-    defer std.fs.cwd().deleteFile(cache_path) catch {};
+    try cache.save(getTestIo(), cache_path);
+    defer std.Io.Dir.cwd().deleteFile(getTestIo(), cache_path) catch {};
 
     var new_cache = Cache.init(allocator);
     defer new_cache.deinit();
 
-    try new_cache.load(cache_path);
+    try new_cache.load(getTestIo(), cache_path);
     try std.testing.expectEqual(@as(u32, 0), new_cache.entries.count());
 }
 
@@ -276,9 +289,9 @@ test "Cache: multiple entries" {
         .title = try allocator.dupe(u8, "File One"),
         .id = try allocator.dupe(u8, "uuid-file1"),
         .content = try allocator.dupe(u8, "Content 1"),
-        .links = .{},
-        .backlinks = .{},
-        .tags = .{},
+        .links = .empty,
+        .backlinks = .empty,
+        .tags = .empty,
         .metadata = std.StringHashMap([]const u8).init(allocator),
     };
     try node1.tags.append(allocator, try allocator.dupe(u8, "alpha"));
@@ -298,9 +311,9 @@ test "Cache: multiple entries" {
         .title = try allocator.dupe(u8, "File Two"),
         .id = try allocator.dupe(u8, "uuid-file2"),
         .content = try allocator.dupe(u8, "Content 2"),
-        .links = .{},
-        .backlinks = .{},
-        .tags = .{},
+        .links = .empty,
+        .backlinks = .empty,
+        .tags = .empty,
         .metadata = std.StringHashMap([]const u8).init(allocator),
     };
     try node2.tags.append(allocator, try allocator.dupe(u8, "beta"));
@@ -315,13 +328,13 @@ test "Cache: multiple entries" {
     });
 
     const cache_path = "test_multi_cache.json";
-    try cache.save(cache_path);
-    defer std.fs.cwd().deleteFile(cache_path) catch {};
+    try cache.save(getTestIo(), cache_path);
+    defer std.Io.Dir.cwd().deleteFile(getTestIo(), cache_path) catch {};
 
     var new_cache = Cache.init(allocator);
     defer new_cache.deinit();
 
-    try new_cache.load(cache_path);
+    try new_cache.load(getTestIo(), cache_path);
     try std.testing.expectEqual(@as(u32, 2), new_cache.entries.count());
 
     const entry1 = new_cache.entries.get("file1.md").?;
@@ -338,7 +351,7 @@ test "Cache: load missing file returns without error" {
     var cache = Cache.init(allocator);
     defer cache.deinit();
 
-    try cache.load("nonexistent_cache_file_12345.json");
+    try cache.load(getTestIo(), "nonexistent_cache_file_12345.json");
     try std.testing.expectEqual(@as(u32, 0), cache.entries.count());
 }
 
@@ -346,15 +359,18 @@ test "Cache: load invalid JSON returns error" {
     const allocator = std.testing.allocator;
 
     const cache_path = "test_invalid_cache.json";
-    const file = try std.fs.cwd().createFile(cache_path, .{});
-    defer file.close();
-    defer std.fs.cwd().deleteFile(cache_path) catch {};
-    try file.writeAll("not valid json {{{");
+    var file = try std.Io.Dir.cwd().createFile(getTestIo(), cache_path, .{});
+    defer file.close(getTestIo());
+    defer std.Io.Dir.cwd().deleteFile(getTestIo(), cache_path) catch {};
+    var write_buf: [256]u8 = undefined;
+    var file_writer = file.writer(getTestIo(), &write_buf);
+    try file_writer.interface.writeAll("not valid json {{{");
+    try file_writer.flush();
 
     var cache = Cache.init(allocator);
     defer cache.deinit();
 
-    try std.testing.expectError(error.SyntaxError, cache.load(cache_path));
+    try std.testing.expectError(error.SyntaxError, cache.load(getTestIo(), cache_path));
 }
 
 test "Cache: link with null nature" {
@@ -367,9 +383,9 @@ test "Cache: link with null nature" {
         .title = try allocator.dupe(u8, "Test"),
         .id = try allocator.dupe(u8, "test-uuid"),
         .content = try allocator.dupe(u8, "Content"),
-        .links = .{},
-        .backlinks = .{},
-        .tags = .{},
+        .links = .empty,
+        .backlinks = .empty,
+        .tags = .empty,
         .metadata = std.StringHashMap([]const u8).init(allocator),
     };
     // Link with null nature
@@ -385,13 +401,13 @@ test "Cache: link with null nature" {
     });
 
     const cache_path = "test_null_nature.json";
-    try cache.save(cache_path);
-    defer std.fs.cwd().deleteFile(cache_path) catch {};
+    try cache.save(getTestIo(), cache_path);
+    defer std.Io.Dir.cwd().deleteFile(getTestIo(), cache_path) catch {};
 
     var new_cache = Cache.init(allocator);
     defer new_cache.deinit();
 
-    try new_cache.load(cache_path);
+    try new_cache.load(getTestIo(), cache_path);
 
     const entry = new_cache.entries.get("test.md").?;
     try std.testing.expectEqual(@as(usize, 1), entry.node.links.items.len);
@@ -409,9 +425,9 @@ test "Cache: entry with special characters in content" {
         .title = try allocator.dupe(u8, "Title with \"quotes\" and \\backslash"),
         .id = try allocator.dupe(u8, "special-uuid"),
         .content = try allocator.dupe(u8, "Content\nwith\nnewlines\tand\ttabs"),
-        .links = .{},
-        .backlinks = .{},
-        .tags = .{},
+        .links = .empty,
+        .backlinks = .empty,
+        .tags = .empty,
         .metadata = std.StringHashMap([]const u8).init(allocator),
     };
 
@@ -425,13 +441,13 @@ test "Cache: entry with special characters in content" {
     });
 
     const cache_path = "test_special_chars.json";
-    try cache.save(cache_path);
-    defer std.fs.cwd().deleteFile(cache_path) catch {};
+    try cache.save(getTestIo(), cache_path);
+    defer std.Io.Dir.cwd().deleteFile(getTestIo(), cache_path) catch {};
 
     var new_cache = Cache.init(allocator);
     defer new_cache.deinit();
 
-    try new_cache.load(cache_path);
+    try new_cache.load(getTestIo(), cache_path);
 
     const entry = new_cache.entries.get("special.md").?;
     try std.testing.expectEqualStrings("Title with \"quotes\" and \\backslash", entry.node.title);

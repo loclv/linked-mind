@@ -31,29 +31,29 @@ pub const Graph = struct {
 
     pub fn getContext(self: *Graph, path: []const u8) ![]const u8 {
         const node = self.nodes.get(path) orelse return error.NodeNotFound;
-        var context: std.ArrayList(u8) = .{};
-        defer context.deinit(self.allocator);
+        var writer: std.Io.Writer.Allocating = .init(self.allocator);
+        errdefer writer.deinit();
 
-        try context.writer(self.allocator).print("### Node: {s}\n", .{node.title});
-        try context.writer(self.allocator).print("**Path:** {s}\n", .{node.path});
+        try writer.writer.print("### Node: {s}\n", .{node.title});
+        try writer.writer.print("**Path:** {s}\n", .{node.path});
 
         if (node.metadata.count() > 0) {
-            try context.writer(self.allocator).print("**Metadata:**\n", .{});
+            try writer.writer.print("**Metadata:**\n", .{});
             var meta_it = node.metadata.iterator();
             while (meta_it.next()) |entry| {
-                try context.writer(self.allocator).print("- {s}: {s}\n", .{ entry.key_ptr.*, entry.value_ptr.* });
+                try writer.writer.print("- {s}: {s}\n", .{ entry.key_ptr.*, entry.value_ptr.* });
             }
         }
 
         if (node.tags.items.len > 0) {
-            try context.writer(self.allocator).print("**Tags:** ", .{});
+            try writer.writer.print("**Tags:** ", .{});
             for (node.tags.items, 0..) |tag, i| {
-                try context.writer(self.allocator).print("#{s}{s}", .{ tag, if (i == node.tags.items.len - 1) "" else ", " });
+                try writer.writer.print("#{s}{s}", .{ tag, if (i == node.tags.items.len - 1) "" else ", " });
             }
-            try context.writer(self.allocator).print("\n", .{});
+            try writer.writer.print("\n", .{});
         }
 
-        try context.writer(self.allocator).print("\n### Connections\n", .{});
+        try writer.writer.print("\n### Connections\n", .{});
         for (node.links.items) |link| {
             var found = false;
             var it = self.nodes.iterator();
@@ -61,9 +61,9 @@ pub const Graph = struct {
                 const other = entry.value_ptr;
                 if (std.mem.indexOf(u8, other.title, link.target) != null) {
                     if (link.nature) |nat| {
-                        try context.writer(self.allocator).print("- OUT ({s}): [[{s}]] (Found: {s})\n", .{ nat, link.target, other.path });
+                        try writer.writer.print("- OUT ({s}): [[{s}]] (Found: {s})\n", .{ nat, link.target, other.path });
                     } else {
-                        try context.writer(self.allocator).print("- OUT: [[{s}]] (Found: {s})\n", .{ link.target, other.path });
+                        try writer.writer.print("- OUT: [[{s}]] (Found: {s})\n", .{ link.target, other.path });
                     }
                     found = true;
                     break;
@@ -71,21 +71,21 @@ pub const Graph = struct {
             }
             if (!found) {
                 if (link.nature) |nat| {
-                    try context.writer(self.allocator).print("- OUT ({s}): [[{s}]] (Unresolved)\n", .{ nat, link.target });
+                    try writer.writer.print("- OUT ({s}): [[{s}]] (Unresolved)\n", .{ nat, link.target });
                 } else {
-                    try context.writer(self.allocator).print("- OUT: [[{s}]] (Unresolved)\n", .{link.target});
+                    try writer.writer.print("- OUT: [[{s}]] (Unresolved)\n", .{link.target});
                 }
             }
         }
 
         if (node.backlinks.items.len > 0) {
-            try context.writer(self.allocator).print("\n### Backlinks (Linked by)\n", .{});
+            try writer.writer.print("\n### Backlinks (Linked by)\n", .{});
             for (node.backlinks.items) |blink| {
-                try context.writer(self.allocator).print("- IN: {s}\n", .{blink});
+                try writer.writer.print("- IN: {s}\n", .{blink});
             }
         }
 
-        return context.toOwnedSlice(self.allocator);
+        return writer.toOwnedSlice();
     }
 
     pub fn findNodeByTitle(self: *Graph, title: []const u8) ?*parser.Node {
@@ -108,7 +108,7 @@ pub const Graph = struct {
             return result;
         }
 
-        var queue: std.ArrayList(*parser.Node) = .{};
+        var queue: std.ArrayList(*parser.Node) = .empty;
         defer queue.deinit(self.allocator);
 
         var parent_map = std.AutoHashMap(*parser.Node, *parser.Node).init(self.allocator);
@@ -139,7 +139,7 @@ pub const Graph = struct {
 
         if (!found) return null;
 
-        var path: std.ArrayList([]const u8) = .{};
+        var path: std.ArrayList([]const u8) = .empty;
         var curr = end_node;
         while (curr != start_node) {
             try path.append(self.allocator, try self.allocator.dupe(u8, curr.title));
@@ -310,7 +310,7 @@ pub const Graph = struct {
         var visited = std.AutoHashMap(*parser.Node, void).init(self.allocator);
         defer visited.deinit();
 
-        var clusters: std.ArrayList(Cluster) = .{};
+        var clusters: std.ArrayList(Cluster) = .empty;
         defer clusters.deinit(self.allocator);
 
         var node_it = self.nodes.iterator();
@@ -318,8 +318,8 @@ pub const Graph = struct {
             const start_node = entry.value_ptr;
             if (visited.contains(start_node)) continue;
 
-            var cluster: Cluster = .{ .nodes = .{} };
-            var queue: std.ArrayList(*parser.Node) = .{};
+            var cluster: Cluster = .{ .nodes = .empty };
+            var queue: std.ArrayList(*parser.Node) = .empty;
             defer queue.deinit(self.allocator);
 
             try queue.append(self.allocator, start_node);
@@ -476,33 +476,33 @@ pub const Graph = struct {
         var c_it = communities.iterator();
         while (c_it.next()) |entry| {
             const gop = try groups.getOrPut(entry.value_ptr.*);
-            if (!gop.found_existing) gop.value_ptr.* = .{};
+            if (!gop.found_existing) gop.value_ptr.* = .empty;
             try gop.value_ptr.append(self.allocator, entry.key_ptr.*);
         }
 
-        var moc: std.ArrayList(u8) = .{};
-        defer moc.deinit(self.allocator);
+        var writer: std.Io.Writer.Allocating = .init(self.allocator);
+        errdefer writer.deinit();
 
-        try moc.writer(self.allocator).print("# Map of Content (MOC)\n", .{});
-        try moc.writer(self.allocator).print("Detected via Louvain community detection\n\n", .{});
+        try writer.writer.print("# Map of Content (MOC)\n", .{});
+        try writer.writer.print("Detected via Louvain community detection\n\n", .{});
 
         var group_it = groups.iterator();
         var cluster_num: usize = 1;
         while (group_it.next()) |entry| {
-            try moc.writer(self.allocator).print("## Community {d} ({d} nodes)\n", .{ cluster_num, entry.value_ptr.items.len });
+            try writer.writer.print("## Community {d} ({d} nodes)\n", .{ cluster_num, entry.value_ptr.items.len });
             for (entry.value_ptr.items) |title| {
                 // Find the node to get its path
                 if (self.findNodeByTitle(title)) |node| {
-                    try moc.writer(self.allocator).print("- [[{s}]] ({s})\n", .{ title, node.path });
+                    try writer.writer.print("- [[{s}]] ({s})\n", .{ title, node.path });
                 } else {
-                    try moc.writer(self.allocator).print("- [[{s}]]\n", .{title});
+                    try writer.writer.print("- [[{s}]]\n", .{title});
                 }
             }
-            try moc.writer(self.allocator).print("\n", .{});
+            try writer.writer.print("\n", .{});
             cluster_num += 1;
         }
 
-        return moc.toOwnedSlice(self.allocator);
+        return writer.toOwnedSlice();
     }
 
     /// Generate CSV map of the knowledge graph.
@@ -512,18 +512,19 @@ pub const Graph = struct {
     /// - nextPartOfIds: next part/continuation documents (from metadata)
     /// - previousPartOfIds: previous part documents (from metadata)
     pub fn generateMapCsv(self: *Graph) ![]const u8 {
-        var csv: std.ArrayList(u8) = .{};
+        var csv: std.ArrayList(u8) = .empty;
         defer csv.deinit(self.allocator);
 
         // Write header
-        try csv.writer(self.allocator).print("id,path,tags,summary,problem,solution,action,causeIds,effectIds,nextPartOfIds,previousPartOfIds\n", .{});
+        try csv.appendSlice(self.allocator, "id,path,tags,summary,problem,solution,action,causeIds,effectIds,nextPartOfIds,previousPartOfIds\n");
 
         var node_it = self.nodes.iterator();
         while (node_it.next()) |entry| {
             const node = entry.value_ptr;
 
             // id
-            try csv.writer(self.allocator).print("{s},", .{node.id});
+            try csv.appendSlice(self.allocator, node.id);
+            try csv.append(self.allocator, ',');
 
             // path (escape commas if present)
             try self.writeCsvField(&csv, node.path);
@@ -706,7 +707,7 @@ pub const Graph = struct {
 
         const target_ws = word_sets.getPtr(target_node) orelse return error.NodeNotFound;
 
-        var scores: std.ArrayList(ScoreResult) = .{};
+        var scores: std.ArrayList(ScoreResult) = .empty;
         defer scores.deinit(self.allocator);
 
         node_it = self.nodes.iterator();
@@ -755,7 +756,7 @@ pub const Graph = struct {
             try word_sets.put(entry.value_ptr, try self.buildWordSet(entry.value_ptr.content));
         }
 
-        var suggestions: std.ArrayList(LinkSuggestion) = .{};
+        var suggestions: std.ArrayList(LinkSuggestion) = .empty;
         defer suggestions.deinit(self.allocator);
 
         // Check all pairs (avoiding duplicates by comparing pointer addresses)
@@ -912,8 +913,8 @@ pub const Graph = struct {
         defer self.allocator.free(clusters);
 
         var report: GcReport = .{
-            .orphans = .{},
-            .islands = .{},
+            .orphans = .empty,
+            .islands = .empty,
         };
 
         for (clusters) |cluster| {
@@ -944,9 +945,9 @@ test "Graph: basic operations and backlink resolution" {
         .title = try allocator.dupe(u8, "A"),
         .id = try allocator.dupe(u8, "uuid-a"),
         .content = try allocator.dupe(u8, "Links to [[B]]"),
-        .links = .{},
-        .backlinks = .{},
-        .tags = .{},
+        .links = .empty,
+        .backlinks = .empty,
+        .tags = .empty,
         .metadata = std.StringHashMap([]const u8).init(allocator),
     };
     try node1.links.append(allocator, .{ .target = try allocator.dupe(u8, "B"), .nature = null });
@@ -956,9 +957,9 @@ test "Graph: basic operations and backlink resolution" {
         .title = try allocator.dupe(u8, "B"),
         .id = try allocator.dupe(u8, "uuid-b"),
         .content = try allocator.dupe(u8, "No links"),
-        .links = .{},
-        .backlinks = .{},
-        .tags = .{},
+        .links = .empty,
+        .backlinks = .empty,
+        .tags = .empty,
         .metadata = std.StringHashMap([]const u8).init(allocator),
     };
 
@@ -990,9 +991,9 @@ test "Graph: findShortestPath" {
             .title = try allocator.dupe(u8, title),
             .id = id,
             .content = try allocator.dupe(u8, ""),
-            .links = .{},
-            .backlinks = .{},
-            .tags = .{},
+            .links = .empty,
+            .backlinks = .empty,
+            .tags = .empty,
             .metadata = std.StringHashMap([]const u8).init(allocator),
         });
         allocator.free(path);
@@ -1031,9 +1032,9 @@ test "Graph: computePageRank" {
             .title = try allocator.dupe(u8, title),
             .id = try std.fmt.allocPrint(allocator, "uuid-{s}", .{title}),
             .content = try allocator.dupe(u8, ""),
-            .links = .{},
-            .backlinks = .{},
-            .tags = .{},
+            .links = .empty,
+            .backlinks = .empty,
+            .tags = .empty,
             .metadata = std.StringHashMap([]const u8).init(allocator),
         });
     }
@@ -1067,9 +1068,9 @@ test "Graph: detectClusters" {
             .title = try allocator.dupe(u8, title),
             .id = try std.fmt.allocPrint(allocator, "uuid-{s}", .{title}),
             .content = try allocator.dupe(u8, ""),
-            .links = .{},
-            .backlinks = .{},
-            .tags = .{},
+            .links = .empty,
+            .backlinks = .empty,
+            .tags = .empty,
             .metadata = std.StringHashMap([]const u8).init(allocator),
         });
     }
@@ -1098,9 +1099,9 @@ test "Graph: getContext with metadata and tags" {
         .title = try allocator.dupe(u8, "Test Note"),
         .id = try allocator.dupe(u8, "uuid-test"),
         .content = try allocator.dupe(u8, "Content here"),
-        .links = .{},
-        .backlinks = .{},
-        .tags = .{},
+        .links = .empty,
+        .backlinks = .empty,
+        .tags = .empty,
         .metadata = std.StringHashMap([]const u8).init(allocator),
     };
     try node.metadata.put(try allocator.dupe(u8, "author"), try allocator.dupe(u8, "Alice"));
@@ -1138,9 +1139,9 @@ test "Graph: findSimilarNodes with similar content" {
         .title = try allocator.dupe(u8, "A"),
         .id = try allocator.dupe(u8, "uuid-a"),
         .content = try allocator.dupe(u8, "programming software development code"),
-        .links = .{},
-        .backlinks = .{},
-        .tags = .{},
+        .links = .empty,
+        .backlinks = .empty,
+        .tags = .empty,
         .metadata = std.StringHashMap([]const u8).init(allocator),
     });
 
@@ -1149,9 +1150,9 @@ test "Graph: findSimilarNodes with similar content" {
         .title = try allocator.dupe(u8, "B"),
         .id = try allocator.dupe(u8, "uuid-b"),
         .content = try allocator.dupe(u8, "programming software engineering code"),
-        .links = .{},
-        .backlinks = .{},
-        .tags = .{},
+        .links = .empty,
+        .backlinks = .empty,
+        .tags = .empty,
         .metadata = std.StringHashMap([]const u8).init(allocator),
     });
 
@@ -1160,9 +1161,9 @@ test "Graph: findSimilarNodes with similar content" {
         .title = try allocator.dupe(u8, "C"),
         .id = try allocator.dupe(u8, "uuid-c"),
         .content = try allocator.dupe(u8, "cooking recipes food kitchen"),
-        .links = .{},
-        .backlinks = .{},
-        .tags = .{},
+        .links = .empty,
+        .backlinks = .empty,
+        .tags = .empty,
         .metadata = std.StringHashMap([]const u8).init(allocator),
     });
 
@@ -1195,9 +1196,9 @@ test "Graph: suggestLinks finds unlinked similar nodes" {
         .title = try allocator.dupe(u8, "A"),
         .id = try allocator.dupe(u8, "uuid-a"),
         .content = try allocator.dupe(u8, "machine learning artificial intelligence algorithms"),
-        .links = .{},
-        .backlinks = .{},
-        .tags = .{},
+        .links = .empty,
+        .backlinks = .empty,
+        .tags = .empty,
         .metadata = std.StringHashMap([]const u8).init(allocator),
     });
 
@@ -1206,9 +1207,9 @@ test "Graph: suggestLinks finds unlinked similar nodes" {
         .title = try allocator.dupe(u8, "B"),
         .id = try allocator.dupe(u8, "uuid-b"),
         .content = try allocator.dupe(u8, "machine learning artificial intelligence neural networks"),
-        .links = .{},
-        .backlinks = .{},
-        .tags = .{},
+        .links = .empty,
+        .backlinks = .empty,
+        .tags = .empty,
         .metadata = std.StringHashMap([]const u8).init(allocator),
     });
 
@@ -1229,9 +1230,9 @@ test "Graph: suggestLinks excludes already linked nodes" {
         .title = try allocator.dupe(u8, "A"),
         .id = try allocator.dupe(u8, "uuid-a"),
         .content = try allocator.dupe(u8, "machine learning artificial intelligence"),
-        .links = .{},
-        .backlinks = .{},
-        .tags = .{},
+        .links = .empty,
+        .backlinks = .empty,
+        .tags = .empty,
         .metadata = std.StringHashMap([]const u8).init(allocator),
     };
     try node_a.links.append(allocator, .{ .target = try allocator.dupe(u8, "B"), .nature = null });
@@ -1242,9 +1243,9 @@ test "Graph: suggestLinks excludes already linked nodes" {
         .title = try allocator.dupe(u8, "B"),
         .id = try allocator.dupe(u8, "uuid-b"),
         .content = try allocator.dupe(u8, "machine learning artificial intelligence"),
-        .links = .{},
-        .backlinks = .{},
-        .tags = .{},
+        .links = .empty,
+        .backlinks = .empty,
+        .tags = .empty,
         .metadata = std.StringHashMap([]const u8).init(allocator),
     });
 
@@ -1269,9 +1270,9 @@ test "Graph: generateMoc creates map of content" {
         .title = try allocator.dupe(u8, "A"),
         .id = try allocator.dupe(u8, "uuid-a"),
         .content = try allocator.dupe(u8, ""),
-        .links = .{},
-        .backlinks = .{},
-        .tags = .{},
+        .links = .empty,
+        .backlinks = .empty,
+        .tags = .empty,
         .metadata = std.StringHashMap([]const u8).init(allocator),
     });
 
@@ -1280,9 +1281,9 @@ test "Graph: generateMoc creates map of content" {
         .title = try allocator.dupe(u8, "B"),
         .id = try allocator.dupe(u8, "uuid-b"),
         .content = try allocator.dupe(u8, ""),
-        .links = .{},
-        .backlinks = .{},
-        .tags = .{},
+        .links = .empty,
+        .backlinks = .empty,
+        .tags = .empty,
         .metadata = std.StringHashMap([]const u8).init(allocator),
     };
     try node_b.links.append(allocator, .{ .target = try allocator.dupe(u8, "A"), .nature = null });
@@ -1308,9 +1309,9 @@ test "Graph: generateMapCsv creates CSV with all fields" {
         .title = try allocator.dupe(u8, "A"),
         .id = try allocator.dupe(u8, "uuid-a"),
         .content = try allocator.dupe(u8, "Content A"),
-        .links = .{},
-        .backlinks = .{},
-        .tags = .{},
+        .links = .empty,
+        .backlinks = .empty,
+        .tags = .empty,
         .metadata = std.StringHashMap([]const u8).init(allocator),
     };
     try node_a.metadata.put(try allocator.dupe(u8, "summary"), try allocator.dupe(u8, "Summary A"));
@@ -1329,9 +1330,9 @@ test "Graph: generateMapCsv creates CSV with all fields" {
         .title = try allocator.dupe(u8, "B"),
         .id = try allocator.dupe(u8, "uuid-b"),
         .content = try allocator.dupe(u8, "Content B"),
-        .links = .{},
-        .backlinks = .{},
-        .tags = .{},
+        .links = .empty,
+        .backlinks = .empty,
+        .tags = .empty,
         .metadata = std.StringHashMap([]const u8).init(allocator),
     };
     try node_b.metadata.put(try allocator.dupe(u8, "summary"), try allocator.dupe(u8, "Summary B"));
@@ -1367,9 +1368,9 @@ test "Graph: detectLouvainCommunities groups connected nodes" {
             .title = try allocator.dupe(u8, title),
             .id = try std.fmt.allocPrint(allocator, "uuid-{s}", .{title}),
             .content = try allocator.dupe(u8, ""),
-            .links = .{},
-            .backlinks = .{},
-            .tags = .{},
+            .links = .empty,
+            .backlinks = .empty,
+            .tags = .empty,
             .metadata = std.StringHashMap([]const u8).init(allocator),
         });
     }
@@ -1400,9 +1401,9 @@ test "Graph: exportGraphJson produces valid JSON" {
         .title = try allocator.dupe(u8, "A"),
         .id = try allocator.dupe(u8, "uuid-a"),
         .content = try allocator.dupe(u8, ""),
-        .links = .{},
-        .backlinks = .{},
-        .tags = .{},
+        .links = .empty,
+        .backlinks = .empty,
+        .tags = .empty,
         .metadata = std.StringHashMap([]const u8).init(allocator),
     };
     try node_a.links.append(allocator, .{ .target = try allocator.dupe(u8, "B"), .nature = try allocator.dupe(u8, "supports") });
@@ -1413,9 +1414,9 @@ test "Graph: exportGraphJson produces valid JSON" {
         .title = try allocator.dupe(u8, "B"),
         .id = try allocator.dupe(u8, "uuid-b"),
         .content = try allocator.dupe(u8, ""),
-        .links = .{},
-        .backlinks = .{},
-        .tags = .{},
+        .links = .empty,
+        .backlinks = .empty,
+        .tags = .empty,
         .metadata = std.StringHashMap([]const u8).init(allocator),
     });
 
@@ -1441,9 +1442,9 @@ test "Graph: getGcReport identifies orphans and islands" {
         .title = try allocator.dupe(u8, "Orphan"),
         .id = try allocator.dupe(u8, "uuid-orphan"),
         .content = try allocator.dupe(u8, ""),
-        .links = .{},
-        .backlinks = .{},
-        .tags = .{},
+        .links = .empty,
+        .backlinks = .empty,
+        .tags = .empty,
         .metadata = std.StringHashMap([]const u8).init(allocator),
     });
 
@@ -1453,9 +1454,9 @@ test "Graph: getGcReport identifies orphans and islands" {
         .title = try allocator.dupe(u8, "IslandA"),
         .id = try allocator.dupe(u8, "uuid-island-a"),
         .content = try allocator.dupe(u8, ""),
-        .links = .{},
-        .backlinks = .{},
-        .tags = .{},
+        .links = .empty,
+        .backlinks = .empty,
+        .tags = .empty,
         .metadata = std.StringHashMap([]const u8).init(allocator),
     };
     try island_a.links.append(allocator, .{ .target = try allocator.dupe(u8, "IslandB"), .nature = null });
@@ -1466,9 +1467,9 @@ test "Graph: getGcReport identifies orphans and islands" {
         .title = try allocator.dupe(u8, "IslandB"),
         .id = try allocator.dupe(u8, "uuid-island-b"),
         .content = try allocator.dupe(u8, ""),
-        .links = .{},
-        .backlinks = .{},
-        .tags = .{},
+        .links = .empty,
+        .backlinks = .empty,
+        .tags = .empty,
         .metadata = std.StringHashMap([]const u8).init(allocator),
     });
 
@@ -1511,9 +1512,9 @@ test "Graph: single node graph" {
         .title = try allocator.dupe(u8, "Solo"),
         .id = try allocator.dupe(u8, "uuid-solo"),
         .content = try allocator.dupe(u8, "content"),
-        .links = .{},
-        .backlinks = .{},
-        .tags = .{},
+        .links = .empty,
+        .backlinks = .empty,
+        .tags = .empty,
         .metadata = std.StringHashMap([]const u8).init(allocator),
     });
 
@@ -1549,9 +1550,9 @@ test "Graph: circular reference handling" {
             .title = try allocator.dupe(u8, title),
             .id = try std.fmt.allocPrint(allocator, "uuid-{s}", .{title}),
             .content = try allocator.dupe(u8, ""),
-            .links = .{},
-            .backlinks = .{},
-            .tags = .{},
+            .links = .empty,
+            .backlinks = .empty,
+            .tags = .empty,
             .metadata = std.StringHashMap([]const u8).init(allocator),
         });
     }
@@ -1589,9 +1590,9 @@ test "Graph: findShortestPath with link nature" {
         .title = try allocator.dupe(u8, "A"),
         .id = try allocator.dupe(u8, "uuid-a"),
         .content = try allocator.dupe(u8, ""),
-        .links = .{},
-        .backlinks = .{},
-        .tags = .{},
+        .links = .empty,
+        .backlinks = .empty,
+        .tags = .empty,
         .metadata = std.StringHashMap([]const u8).init(allocator),
     };
     try node_a.links.append(allocator, .{ .target = try allocator.dupe(u8, "B"), .nature = try allocator.dupe(u8, "supports") });
@@ -1602,9 +1603,9 @@ test "Graph: findShortestPath with link nature" {
         .title = try allocator.dupe(u8, "B"),
         .id = try allocator.dupe(u8, "uuid-b"),
         .content = try allocator.dupe(u8, ""),
-        .links = .{},
-        .backlinks = .{},
-        .tags = .{},
+        .links = .empty,
+        .backlinks = .empty,
+        .tags = .empty,
         .metadata = std.StringHashMap([]const u8).init(allocator),
     });
 
@@ -1629,9 +1630,9 @@ test "Graph: resolveBacklinks with .md extension stripping" {
         .title = try allocator.dupe(u8, "target.md"), // Title has .md
         .id = try allocator.dupe(u8, "uuid-target"),
         .content = try allocator.dupe(u8, ""),
-        .links = .{},
-        .backlinks = .{},
-        .tags = .{},
+        .links = .empty,
+        .backlinks = .empty,
+        .tags = .empty,
         .metadata = std.StringHashMap([]const u8).init(allocator),
     };
     try graph.addNode(node_a);
@@ -1641,9 +1642,9 @@ test "Graph: resolveBacklinks with .md extension stripping" {
         .title = try allocator.dupe(u8, "B"),
         .id = try allocator.dupe(u8, "uuid-b"),
         .content = try allocator.dupe(u8, ""),
-        .links = .{},
-        .backlinks = .{},
-        .tags = .{},
+        .links = .empty,
+        .backlinks = .empty,
+        .tags = .empty,
         .metadata = std.StringHashMap([]const u8).init(allocator),
     };
     // Link to "target" (without .md) should still resolve to "target.md"
@@ -1667,9 +1668,9 @@ test "Graph: addNode with unique keys adds both" {
         .title = try allocator.dupe(u8, "First"),
         .id = try allocator.dupe(u8, "uuid-1"),
         .content = try allocator.dupe(u8, "content 1"),
-        .links = .{},
-        .backlinks = .{},
-        .tags = .{},
+        .links = .empty,
+        .backlinks = .empty,
+        .tags = .empty,
         .metadata = std.StringHashMap([]const u8).init(allocator),
     };
     try graph.addNode(node1);
@@ -1679,9 +1680,9 @@ test "Graph: addNode with unique keys adds both" {
         .title = try allocator.dupe(u8, "Second"),
         .id = try allocator.dupe(u8, "uuid-2"),
         .content = try allocator.dupe(u8, "content 2"),
-        .links = .{},
-        .backlinks = .{},
-        .tags = .{},
+        .links = .empty,
+        .backlinks = .empty,
+        .tags = .empty,
         .metadata = std.StringHashMap([]const u8).init(allocator),
     };
     try graph.addNode(node2);
@@ -1701,9 +1702,9 @@ test "Graph: findNodeByTitle returns null for no match" {
         .title = try allocator.dupe(u8, "Alpha"),
         .id = try allocator.dupe(u8, "uuid-a"),
         .content = try allocator.dupe(u8, ""),
-        .links = .{},
-        .backlinks = .{},
-        .tags = .{},
+        .links = .empty,
+        .backlinks = .empty,
+        .tags = .empty,
         .metadata = std.StringHashMap([]const u8).init(allocator),
     };
     try graph.addNode(node);
@@ -1722,9 +1723,9 @@ test "Graph: generateMapCsv escapes commas in path" {
         .title = try allocator.dupe(u8, "CommaPath"),
         .id = try allocator.dupe(u8, "uuid-comma"),
         .content = try allocator.dupe(u8, ""),
-        .links = .{},
-        .backlinks = .{},
-        .tags = .{},
+        .links = .empty,
+        .backlinks = .empty,
+        .tags = .empty,
         .metadata = std.StringHashMap([]const u8).init(allocator),
     };
     try node.metadata.put(try allocator.dupe(u8, "summary"), try allocator.dupe(u8, "A, B, and C"));
@@ -1749,9 +1750,9 @@ test "Graph: generateMapCsv with empty optional fields" {
         .title = try allocator.dupe(u8, "Minimal"),
         .id = try allocator.dupe(u8, "uuid-min"),
         .content = try allocator.dupe(u8, ""),
-        .links = .{},
-        .backlinks = .{},
-        .tags = .{},
+        .links = .empty,
+        .backlinks = .empty,
+        .tags = .empty,
         .metadata = std.StringHashMap([]const u8).init(allocator),
     };
     try graph.addNode(node);
@@ -1773,9 +1774,9 @@ test "Graph: computePageRank on single node" {
         .title = try allocator.dupe(u8, "Solo"),
         .id = try allocator.dupe(u8, "uuid-solo"),
         .content = try allocator.dupe(u8, ""),
-        .links = .{},
-        .backlinks = .{},
-        .tags = .{},
+        .links = .empty,
+        .backlinks = .empty,
+        .tags = .empty,
         .metadata = std.StringHashMap([]const u8).init(allocator),
     };
     try graph.addNode(node);
@@ -1799,9 +1800,9 @@ test "Graph: detectLouvainCommunities on disconnected graph" {
         .title = try allocator.dupe(u8, "A"),
         .id = try allocator.dupe(u8, "uuid-a"),
         .content = try allocator.dupe(u8, ""),
-        .links = .{},
-        .backlinks = .{},
-        .tags = .{},
+        .links = .empty,
+        .backlinks = .empty,
+        .tags = .empty,
         .metadata = std.StringHashMap([]const u8).init(allocator),
     };
     const node_b: parser.Node = .{
@@ -1809,9 +1810,9 @@ test "Graph: detectLouvainCommunities on disconnected graph" {
         .title = try allocator.dupe(u8, "B"),
         .id = try allocator.dupe(u8, "uuid-b"),
         .content = try allocator.dupe(u8, ""),
-        .links = .{},
-        .backlinks = .{},
-        .tags = .{},
+        .links = .empty,
+        .backlinks = .empty,
+        .tags = .empty,
         .metadata = std.StringHashMap([]const u8).init(allocator),
     };
     try graph.addNode(node_a);

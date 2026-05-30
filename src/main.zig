@@ -4,16 +4,15 @@ const cache = @import("cache.zig");
 const graph = @import("graph.zig");
 const parser = @import("parser.zig");
 
-pub fn main() !void {
-    const allocator = std.heap.smp_allocator;
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
 
     var kb_graph = graph.Graph.init(allocator);
     defer kb_graph.deinit();
 
-    var kb_parser = parser.Parser.init(allocator);
+    var kb_parser = parser.Parser.init(allocator, init.io);
 
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
+    const args = try init.minimal.args.toSlice(init.arena.allocator());
 
     if (args.len < 3) {
         std.debug.print(
@@ -49,12 +48,12 @@ pub fn main() !void {
         }
     }
 
-    var kb_dir = try std.fs.cwd().openDir(kb_dir_path, .{ .iterate = true });
-    defer kb_dir.close();
+    var kb_dir = try std.Io.Dir.cwd().openDir(init.io, kb_dir_path, .{ .iterate = true });
+    defer kb_dir.close(init.io);
 
     var kb_cache = cache.Cache.init(allocator);
     defer kb_cache.deinit();
-    kb_cache.load("cache.json") catch |err| {
+    kb_cache.load(init.io, "cache.json") catch |err| {
         std.debug.print("Note: Could not load cache.json: {any}. Starting fresh.\n", .{err});
     };
 
@@ -64,20 +63,20 @@ pub fn main() !void {
     var walker = try kb_dir.walk(allocator);
     defer walker.deinit();
 
-    while (try walker.next()) |entry| {
+    while (try walker.next(init.io)) |entry| {
         if (entry.kind == .file and std.mem.endsWith(u8, entry.basename, ".md")) {
             const absolute_path = try std.fs.path.join(allocator, &[_][]const u8{ kb_dir_path, entry.path });
             defer allocator.free(absolute_path);
 
-            const stat = try kb_dir.statFile(entry.path);
-            const mtime = stat.mtime;
+            const stat = try kb_dir.statFile(init.io, entry.path, .{});
+            const mtime = @as(i128, stat.mtime.toNanoseconds());
 
             var cached_entry: ?*cache.CacheEntry = null;
             if (kb_cache.entries.getPtr(absolute_path)) |cached| {
                 if (cached.mtime == mtime) {
                     cached_entry = cached;
                 } else {
-                    const hash = try calculateHash(absolute_path);
+                    const hash = try calculateHash(init.io, absolute_path);
                     if (std.mem.eql(u8, &hash, &cached.hash)) {
                         cached_entry = cached;
                         // Still update mtime so we skip hashing next time
@@ -97,7 +96,7 @@ pub fn main() !void {
                 });
             } else {
                 const node = try kb_parser.parseFile(absolute_path);
-                const hash = try calculateHash(absolute_path);
+                const hash = try calculateHash(init.io, absolute_path);
 
                 // Add a clone to the graph because new_cache will own the 'node' struct
                 try kb_graph.addNode(try node.clone(allocator));
@@ -111,20 +110,20 @@ pub fn main() !void {
         }
     }
 
-    try new_cache.save("cache.json");
+    try new_cache.save(init.io, "cache.json");
 
     try kb_graph.resolveBacklinks();
     var pr_scores = try kb_graph.computePageRank(10);
     defer pr_scores.deinit();
 
     if (std.mem.eql(u8, mode, "export")) {
-        var bundle: std.ArrayList(u8) = .{};
-        defer bundle.deinit(allocator);
+        var bundle = std.Io.Writer.Allocating.init(allocator);
+        defer bundle.deinit();
 
-        try bundle.writer(allocator).print("# LLM Knowledge Bundle\nGenerated on: {s}\n", .{"2026-04-07"});
-        if (filter_tag) |t| try bundle.writer(allocator).print("Filter Tag: {s}\n", .{t});
-        if (filter_status) |s| try bundle.writer(allocator).print("Filter Status: {s}\n", .{s});
-        try bundle.writer(allocator).print("\n", .{});
+        try bundle.writer.print("# LLM Knowledge Bundle\nGenerated on: {s}\n", .{"2026-04-07"});
+        if (filter_tag) |t| try bundle.writer.print("Filter Tag: {s}\n", .{t});
+        if (filter_status) |s| try bundle.writer.print("Filter Status: {s}\n", .{s});
+        try bundle.writer.print("\n", .{});
 
         var iter = kb_graph.nodes.iterator();
         while (iter.next()) |entry| {
@@ -151,11 +150,13 @@ pub fn main() !void {
             defer allocator.free(ctx);
 
             const rank = pr_scores.get(node.title) orelse 0.0;
-            try bundle.writer(allocator).print("**PageRank:** {d:.4}\n", .{rank});
-            try bundle.writer(allocator).print("---\n{s}\n", .{ctx});
+            try bundle.writer.print("**PageRank:** {d:.4}\n", .{rank});
+            try bundle.writer.print("---\n{s}\n", .{ctx});
         }
 
-        try std.fs.cwd().writeFile(.{ .sub_path = "llm_knowledge.md", .data = bundle.items });
+        const bundle_data = try bundle.toOwnedSlice();
+        defer allocator.free(bundle_data);
+        try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = "llm_knowledge.md", .data = bundle_data });
         std.debug.print("Knowledge bundle written to llm_knowledge.md\n", .{});
     } else if (std.mem.eql(u8, mode, "path")) {
         if (args.len < 5) {
@@ -183,7 +184,7 @@ pub fn main() !void {
         const csv = try kb_graph.generateMapCsv();
         defer allocator.free(csv);
 
-        try std.fs.cwd().writeFile(.{ .sub_path = "map.csv", .data = csv });
+        try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = "map.csv", .data = csv });
         std.debug.print("Knowledge graph map written to map.csv\n", .{});
     } else if (std.mem.eql(u8, mode, "gc")) {
         var threshold: usize = 3;
@@ -266,7 +267,7 @@ pub fn main() !void {
         const json_data = try kb_graph.exportGraphJson();
         defer allocator.free(json_data);
 
-        try std.fs.cwd().writeFile(.{ .sub_path = "graph.json", .data = json_data });
+        try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = "graph.json", .data = json_data });
         std.debug.print("Graph data written to graph.json. Use a web server to view the dashboard.\n", .{});
     } else {
         var iter = kb_graph.nodes.iterator();
@@ -298,14 +299,17 @@ pub fn main() !void {
     }
 }
 
-fn calculateHash(path: []const u8) ![32]u8 {
-    const file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
+fn calculateHash(io: std.Io, path: []const u8) ![32]u8 {
+    const file = try std.Io.Dir.cwd().openFile(io, path, .{});
+    defer file.close(io);
 
     var hash = std.crypto.hash.sha2.Sha256.init(.{});
-    var buffer: [8192]u8 = undefined;
+    var read_buf: [8192]u8 = undefined;
+    var file_reader = file.reader(io, &read_buf);
+
+    var buffer: [4096]u8 = undefined;
     while (true) {
-        const bytes_read = try file.read(&buffer);
+        const bytes_read = try file_reader.interface.readSliceShort(&buffer);
         if (bytes_read == 0) break;
         hash.update(buffer[0..bytes_read]);
     }
@@ -315,8 +319,9 @@ fn calculateHash(path: []const u8) ![32]u8 {
 fn calculateHashFromReader(reader: anytype) ![32]u8 {
     var hash = std.crypto.hash.sha2.Sha256.init(.{});
     var buffer: [8192]u8 = undefined;
+    var r = reader;
     while (true) {
-        const bytes_read = try reader.read(&buffer);
+        const bytes_read = try r.readSliceShort(&buffer);
         if (bytes_read == 0) break;
         hash.update(buffer[0..bytes_read]);
     }
@@ -329,12 +334,12 @@ test {
 
 test "calculateHashFromReader: consistent hashing" {
     const content = "hello world";
-    var fbs = std.io.fixedBufferStream(content);
+    const reader1 = std.Io.Reader.fixed(content);
 
-    const hash1 = try calculateHashFromReader(fbs.reader());
+    const hash1 = try calculateHashFromReader(reader1);
 
-    fbs.reset();
-    const hash2 = try calculateHashFromReader(fbs.reader());
+    const reader2 = std.Io.Reader.fixed(content);
+    const hash2 = try calculateHashFromReader(reader2);
 
     try std.testing.expectEqualSlices(u8, &hash1, &hash2);
 

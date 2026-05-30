@@ -52,3 +52,12 @@ This checklist tracks the implementation of recommended features to enhance the 
 - [x] Enhanced Visualizer:
   - [x] Integrated Previewer (sidebar showing Rank/Metadata).
   - [x] Node Search in UI.
+
+## 🛠 Zig 0.16.0 Compatibility & Migration (COMPLETED)
+- [x] Migrate codebase from Zig 0.15.2 to Zig 0.16.0 compatibility.
+    - [x] Refactor I/O operations to use new `std.Io` unified interface.
+    - [x] Convert empty list initializations `.{}` to `.empty`.
+    - [x] Adopt Juicy Main pattern (`std.process.Init`) in `main.zig` and `li.zig`.
+    - [x] Use `std.Io.Writer.Allocating` for dynamic string buffering.
+    - [x] Replace `std.Thread.sleep` with `std.Io.sleep`.
+    - [x] Verify complete test suite and CLI compilation and run successfully.
