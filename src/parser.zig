@@ -219,7 +219,7 @@ pub const Parser = struct {
         // Why check content[3..]: Skip first ---, find closing ---
         // This handles files that start with --- but aren't frontmatter (rare edge case)
         if (std.mem.startsWith(u8, content, "---")) {
-            const second_sep = std.mem.indexOf(u8, content[3..], "---");
+            const second_sep = std.mem.find(u8, content[3..], "---");
             if (second_sep) |sep_idx| {
                 const frontmatter = content[3 .. sep_idx + 3];
                 content_start = sep_idx + 6; // Move past --- and potential newline
@@ -264,7 +264,7 @@ pub const Parser = struct {
                     // Split on :: to separate nature from target
                     // First :: is separator, subsequent :: stay in target
                     // Example: [[a::b::c]] -> nature="a", target="b::c"
-                    if (std.mem.indexOf(u8, raw_link, "::")) |sep_idx| {
+                    if (std.mem.find(u8, raw_link, "::")) |sep_idx| {
                         link_obj.nature = try self.allocator.dupe(u8, std.mem.trim(u8, raw_link[0..sep_idx], " "));
                         link_obj.target = try self.allocator.dupe(u8, std.mem.trim(u8, raw_link[sep_idx + 2 ..], " "));
                     } else {

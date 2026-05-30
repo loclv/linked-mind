@@ -2,6 +2,18 @@ const std = @import("std");
 
 const parser = @import("parser.zig");
 
+pub const ScoreResult = struct {
+    node: *parser.Node,
+    score: f32,
+};
+
+/// Suggested link between two nodes that are content-similar but not explicitly linked
+pub const LinkSuggestion = struct {
+    source: *parser.Node,
+    target: *parser.Node,
+    score: f32,
+};
+
 pub const Graph = struct {
     allocator: std.mem.Allocator,
     nodes: std.StringHashMap(parser.Node),
@@ -148,6 +160,7 @@ pub const Graph = struct {
         try path.append(self.allocator, try self.allocator.dupe(u8, start_node.title));
 
         std.mem.reverse([]const u8, path.items);
+        // ziglint-ignore: Z017
         return try path.toOwnedSlice(self.allocator);
     }
 
@@ -238,15 +251,11 @@ pub const Graph = struct {
     pub const Cluster = struct {
         nodes: std.ArrayList(*parser.Node),
 
+        // ziglint-ignore: Z023
         pub fn deinit(self: *Cluster, allocator: std.mem.Allocator) void {
             self.nodes.deinit(allocator);
             self.* = undefined;
         }
-    };
-
-    pub const ScoreResult = struct {
-        node: *parser.Node,
-        score: f32,
     };
 
     /// Pre-computed word set for a node. Avoids re-tokenizing content
@@ -733,13 +742,6 @@ pub const Graph = struct {
         return self.allocator.dupe(ScoreResult, scores.items[0..real_limit]);
     }
 
-    /// Suggested link between two nodes that are content-similar but not explicitly linked
-    pub const LinkSuggestion = struct {
-        source: *parser.Node,
-        target: *parser.Node,
-        score: f32,
-    };
-
     /// Analyze all node pairs and suggest links where content similarity
     /// is high (above threshold) but no explicit link exists.
     pub fn suggestLinks(self: *Graph, threshold: f32, limit: usize) ![]LinkSuggestion {
@@ -900,6 +902,7 @@ pub const Graph = struct {
         orphans: std.ArrayList(*parser.Node),
         islands: std.ArrayList(Cluster),
 
+        // ziglint-ignore: Z023
         pub fn deinit(self: *GcReport, allocator: std.mem.Allocator) void {
             self.orphans.deinit(allocator);
             for (self.islands.items) |*c| c.deinit(allocator);

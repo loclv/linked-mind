@@ -11,7 +11,7 @@ A reasoning-based, human-like retrieval RAG system over long documents (like [Ve
 
 Save tokens, read less, understand more.
 ## 🚀 Features
-- Fast Markdown Parsing: Written in Zig (v0.15.2) for maximum efficiency.
+- Fast Markdown Parsing: Written in Zig (v0.16.0) for maximum efficiency.
 - Wikilink Extraction: Automatically identifies `[[Internal Links]]` between documents.
 - Tag System: Supports `#hashtags` to categorize knowledge nodes.
 - Link Resolution: Automatically maps human-readable wikilinks to absolute file paths.
@@ -20,7 +20,7 @@ Save tokens, read less, understand more.
 - LLM Export: Generates a single, structured `llm_knowledge.md` file designed for transformer-based LLMs to consume.
 ## 🛠 Usage
 ### Prerequisites
-- [Zig 0.15.2+](https://ziglang.org/download/)
+- [Zig 0.16.0+](https://ziglang.org/download/)
 ### Building
 ```bash
 zig build
