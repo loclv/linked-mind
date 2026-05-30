@@ -1,5 +1,4 @@
 # `map.csv` - CSV Data Format for mapping knowledge base
-
 Think like a real life events, objects - learn from Buddha's teachings:
 - every thing happens has many causes and effects (karma) - strong relationship:
   - graph structure: cause -> effect

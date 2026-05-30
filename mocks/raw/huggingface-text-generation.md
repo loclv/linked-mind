@@ -1,11 +1,8 @@
 # Text Generation with Transformers
-
 Text generation is the most popular application for large language models (LLMs). A LLM is trained to generate the next word (token) given some initial text (prompt) along with its own generated outputs up to a predefined length or when it reaches an end-of-sequence (`EOS`) token.
 
 In Transformers, the `GenerationMixin.generate` API handles text generation, and it is available for all models with generative capabilities.
-
 ## Default generate
-
 Before you begin, it's helpful to install `bitsandbytes` to quantize really large models to reduce their memory usage.
 
 ```bash
@@ -38,9 +35,7 @@ generated_ids = model.generate(**model_inputs)
 tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
 # "A list of colors: red, blue, green, yellow, orange, purple, pink,"
 ```
-
 ## Generation configuration
-
 All generation settings are contained in `GenerationConfig`. In the example above, the generation settings are derived from the `generation_config.json` file of the model. A default decoding strategy is used when no configuration is saved with a model.
 
 Inspect the configuration through the `generation_config` attribute. It only shows values that are different from the default configuration.
@@ -68,9 +63,7 @@ model.generate(**inputs, num_beams=4, do_sample=True)
 1. the `logits_processor` parameter accepts custom `LogitsProcessor` instances for manipulating the next token probability distribution;
 2. the `stopping_criteria` parameters supports custom `StoppingCriteria` to stop text generation;
 3. other custom generation methods can be loaded through the `custom_generate` flag.
-
 ### Saving
-
 Create an instance of `GenerationConfig` and specify the decoding parameters you want.
 
 ```python
@@ -83,9 +76,7 @@ generation_config = GenerationConfig(
 
 generation_config.save_pretrained("my_account/my_model", push_to_hub=True)
 ```
-
 ## Common Options
-
 `GenerationMixin.generate` is a powerful tool that can be heavily customized. This section contains a list of popular generation options:
 
 | Option name | Type | Simplified description |
@@ -96,11 +87,8 @@ generation_config.save_pretrained("my_account/my_model", push_to_hub=True)
 | `num_beams` | `int` | When set to `>1`, activates the beam search algorithm. Beam search is good on input-grounded tasks. |
 | `repetition_penalty` | `float` | Set it to `>1.0` if you're seeing the model repeat itself often. Larger values apply a larger penalty. |
 | `eos_token_id` | `list[int]` | The token(s) that will cause generation to stop. The default value is usually good, but you can specify a different token. |
-
 ## Pitfalls
-
 ### Output length
-
 `generate` returns up to 20 tokens by default unless otherwise specified in a models `GenerationConfig`. It is highly recommended to manually set the number of generated tokens with the `max_new_tokens` parameter to control the output length. Decoder-only models returns the initial prompt along with the generated tokens.
 
 ```python
@@ -114,9 +102,7 @@ generated_ids = model.generate(**model_inputs, max_new_tokens=50)
 tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
 # 'A sequence of numbers: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, ...'
 ```
-
 ### Bad prompting
-
 The choice of prompt has a dramatic effect on output quality. For chat models, use the chat template instead of raw prompting.
 
 ```python

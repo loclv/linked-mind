@@ -2,19 +2,14 @@
 name: zig-best-practices
 description: Provides Zig patterns for type-first development with tagged unions, explicit error sets, comptime validation, and memory management. Must use when reading or writing Zig files.
 ---
-
 # Zig Best Practices
-
 ## Type-First Development
-
 Types define the contract before implementation. Follow this workflow:
 1. Define data structures - structs, unions, and error sets first
 2. Define function signatures - parameters, return types, and error unions
 3. Implement to satisfy types - let the compiler guide completeness
 4. Validate at comptime - catch invalid configurations during compilation
-
 ### Make Illegal States Unrepresentable
-
 Use Zig's type system to prevent invalid states at compile time.
 Tagged unions for mutually exclusive states:
 
@@ -113,13 +108,9 @@ fn processStatus(status: Status) !void {
     }
 }
 ```
-
 ## Module Structure
-
 Larger cohesive files are idiomatic in Zig. Keep related code together: tests alongside implementation, comptime generics at file scope, public/private controlled by `pub`. Split only when a file handles genuinely separate concerns. The standard library demonstrates this pattern with files like `std/mem.zig` containing 2000+ lines of cohesive memory operations.
-
 ## Instructions
-
 - Return errors with context using error unions (`!T`); every function returns a value or an error. Explicit error sets document failure modes.
 - Use `errdefer` for cleanup on error paths; use `defer` for unconditional cleanup. This prevents resource leaks without try-finally boilerplate.
 - Handle all branches in `switch` statements; include an `else` clause that returns an error or uses `unreachable` for truly impossible cases.
@@ -128,9 +119,7 @@ Larger cohesive files are idiomatic in Zig. Keep related code together: tests al
 - Avoid `anytype`; prefer explicit `comptime T: type` parameters. Explicit types document intent and produce clearer error messages.
 - Use `std.log.scoped` for namespaced logging; define a module-level `log` constant for consistent scope across the file.
 - Add or update tests for new logic; use `std.testing.allocator` to catch memory leaks automatically.
-
 ## Examples
-
 Explicit failure for unimplemented logic:
 ```zig
 fn buildWidget(widget_type: []const u8) !Widget {
@@ -183,16 +172,12 @@ test "widget creation" {
     try std.testing.expectEqual(1, list.items.len);
 }
 ```
-
 ## Memory Management
-
 - Pass allocators explicitly; never use global state for allocation. Functions declare their allocation needs in parameters.
 - Use `defer` immediately after acquiring a resource. Place cleanup logic next to acquisition for clarity.
 - Prefer arena allocators for temporary allocations; they free everything at once when the arena is destroyed.
 - Use `std.testing.allocator` in tests; it reports leaks with stack traces showing allocation origins.
-
 ### Examples
-
 Allocator as explicit parameter:
 ```zig
 fn processData(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
@@ -218,13 +203,9 @@ fn processBatch(items: []const Item) !void {
     // All allocations freed when arena deinits
 }
 ```
-
 ### General Purpose Allocator (GPA) vs Arena Allocator
-
 TL;DR: Zig’s General Purpose Allocator (GPA) and a classic Arena Allocator serve different goals. GPA is flexible and safe for general use but slower; an Arena is simple, very fast, and ideal for scoped lifetimes with bulk free.
-
 #### What each allocator is
-
 Zig GPA (General Purpose Allocator)
 Zig’s GPA is the allocator you use when you want a general-purpose, robust, and flexible heap allocator. It supports normal dynamic allocation/deallocation patterns — alloc, free, resize, etc.
 
@@ -251,9 +232,7 @@ When to use it:
 - Game frame scratch memory
 - Bulk objects with the same lifetime
 - Anything where you can free all at once
-
 #### Comparing by common criteria
-
 Performance
 - Arena: very fast, pointer bumping
 - GPA: slower but nice for general use
@@ -277,9 +256,7 @@ Use-case
 Complexity
 - Arena: simple
 - GPA: complex, handles diverse patterns
-
 #### Zig example patterns
-
 Arena code (conceptual):
 ```zig
 var arena = std.heap.ArenaAllocator.init(&buffer);
@@ -301,23 +278,17 @@ When each wins
 
 If you’re building a game engine frame scratch pool, or parse once and discard, the Arena is clearly superior––simplicity + speed.
 If you need persistent data with individual frees, or you’re writing library code that must interoperate with arbitrary lifetime patterns, use GPA or a blend (Arena for short-lived parts + GPA for long-lived).
-
 #### Summary
-
 - Zig GPA = general-purpose, flexible, correct, slower.
 - Arena = simple, fast, lifespan-scoped, no per-allocation free.
 
 For most real programs, you’ll often combine them: use arenas for scoped temporary allocations and a GPA for the rest.
 Would you like a practical Zig snippet showing how to use both together in a real project?
-
 ## Logging
-
 - Use `std.log.scoped` to create namespaced loggers; each module should define its own scoped logger for filtering.
 - Define a module-level `const log` at the top of the file; use it consistently throughout the module.
 - Use appropriate log levels: `err` for failures, `warn` for suspicious conditions, `info` for state changes, `debug` for tracing.
-
 ### Examples
-
 Scoped logger for a module:
 ```zig
 const std = @import("std");
@@ -347,15 +318,11 @@ const log = std.log.scoped(.http);
 // In src/auth.zig
 const log = std.log.scoped(.auth);
 ```
-
 ## Comptime Patterns
-
 - Use `comptime` parameters for generic functions; type information is available at compile time with zero runtime cost.
 - Prefer compile-time validation over runtime checks when possible. Catch errors during compilation rather than in production.
 - Use `@compileError` for invalid configurations that should fail the build.
-
 ### Examples
-
 Generic function with comptime type:
 ```zig
 fn max(comptime T: type, a: T, b: T) T {
@@ -372,15 +339,11 @@ fn createBuffer(comptime size: usize) [size]u8 {
     return [_]u8{0}  size;
 }
 ```
-
 ## Avoiding anytype
-
 - Prefer `comptime T: type` over `anytype`; explicit type parameters document expected constraints and produce clearer errors.
 - Use `anytype` only when the function genuinely accepts any type (like `std.debug.print`) or for callbacks/closures.
 - When using `anytype`, add a doc comment describing the expected interface or constraints.
-
 ### Examples
-
 Prefer explicit comptime type (good):
 ```zig
 fn sum(comptime T: type, items: []const T) T {
@@ -421,15 +384,11 @@ fn debugPrint(value: anytype) void {
     }
 }
 ```
-
 ## Error Handling Patterns
-
 - Define specific error sets for functions; avoid `anyerror` when possible. Specific errors document failure modes.
 - Use `catch` with a block for error recovery or logging; use `catch unreachable` only when errors are truly impossible.
 - Merge error sets with `||` when combining operations that can fail in different ways.
-
 ### Examples
-
 Specific error set:
 ```zig
 const ConfigError = error{
@@ -450,15 +409,11 @@ const value = operation() catch |err| {
     return error.OperationFailed;
 };
 ```
-
 ## Configuration
-
 - Load config from environment variables at startup; validate required values before use. Missing config should cause a clean exit with a descriptive message.
 - Define a Config struct as single source of truth; avoid `std.posix.getenv` scattered throughout code.
 - Use sensible defaults for development; require explicit values for production secrets.
-
 ### Examples
-
 Typed config struct:
 ```zig
 const std = @import("std");
@@ -487,14 +442,10 @@ pub fn loadConfig() !Config {
     };
 }
 ```
-
 ## Optionals
-
 - Use `orelse` to provide default values for optionals; use `.?` only when null is a program error.
 - Prefer `if (optional) |value|` pattern for safe unwrapping with access to the value.
-
 ### Examples
-
 Safe optional handling:
 ```zig
 fn findWidget(id: u32) ?*Widget {
@@ -515,19 +466,14 @@ if (maybeValue) |value| {
     std.log.warn("no value present", .{});
 }
 ```
-
 ## Advanced Topics
-
 Reference these guides for specialized patterns:
 - Building custom containers (queues, stacks, trees): See [GENERICS.md](GENERICS.md)
 - Interfacing with C libraries (raylib, SDL, curl, system APIs): See [C-INTEROP.md](C-INTEROP.md)
 - Debugging memory leaks (GPA, stack traces): See [DEBUGGING.md](DEBUGGING.md)
 - Zig 0.15.2 Specific Patterns: See below for critical changes in the 0.15.2 standard library.
-
 ## Zig 0.15.2 Specific Patterns
-
 ### Unmanaged ArrayList by Default
-
 In 0.15.2, `std.ArrayList(T)` returns an unmanaged list. It does not store the allocator. All methods that allocate or free memory now require an explicit `Allocator` argument.
 Good (0.15.2):
 
@@ -545,9 +491,7 @@ Bad (0.15.2 - will not compile):
 var list = std.ArrayList(u8).init(allocator); // error: no member named 'init'
 defer list.deinit(); // error: expected 1 argument, found 0
 ```
-
 ### JSON Stringification
-
 The top-level `std.json.stringify` has been replaced by `std.json.Stringify.value`. It requires a pointer to a `std.io.Writer` interface. For dynamically growing buffers, use `std.io.Writer.Allocating`.
 Good (0.15.2):
 
@@ -564,9 +508,7 @@ Bad (0.15.2):
 ```zig
 try std.json.stringify(payload, .{}, writer); // error: no member named 'stringify'
 ```
-
 ### HTTP Client (std.http)
-
 The HTTP client API has been significantly updated. `open` is now `request`, and body handling is more explicit.
 Good (0.15.2):
 
@@ -592,18 +534,13 @@ var reader = res.reader(&response_buf);
 const response_body = try reader.allocRemaining(allocator, .limited(1024 * 1024));
 defer allocator.free(response_body);
 ```
-
 ### Reader/Writer API
-
 `std.Io.Reader` and `std.Io.Writer` are now interface structs using a vtable.
 - `readAllAlloc` -> `allocRemaining(allocator, .limited(max_size))`
 - `writer()` (as a function) -> `writer` (as a field in some structs like `BodyWriter`)
 - Concrete writers can be converted to the interface type via `.any()`.
-
 ## Tooling
-
 ### zigdoc - Documentation Lookup
-
 CLI tool for browsing Zig std library and project dependency docs.
 Install:
 
@@ -620,9 +557,7 @@ zigdoc std.mem.Allocator # nested symbol
 zigdoc vaxis.Window # project dependency (if in build.zig)
 zigdoc @init # create AGENTS.md with API patterns
 ```
-
 ### ziglint - Static Analysis
-
 Linter for Zig source code enforcing coding standards.
 Build and install from source:
 
@@ -696,9 +631,7 @@ Rules:
 - Z031: Avoid underscore prefix in identifiers
 - Z032: Acronyms should use standard casing
 - Z033: Avoid redundant words in identifiers (disabled by default)
-
 ## References
-
 - ziglint: <https://github.com/rockorager/ziglint>
 - zigdoc: <https://github.com/rockorager/zigdoc>
 - Language Reference: <https://ziglang.org/documentation/0.15.2/>

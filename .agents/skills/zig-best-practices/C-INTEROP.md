@@ -1,16 +1,11 @@
 # C Interoperability in Zig
-
 Zig can directly import C headers, call C functions, and expose Zig functions to C. Use these patterns when integrating with existing C libraries or system APIs.
-
 ## When to Use
-
 - Wrapping C libraries (raylib, SDL, curl)
 - Calling platform-specific system APIs
 - Passing callbacks to C code
 - Writing Zig libraries callable from C
-
 ## Importing C Headers
-
 Use `@cImport` to import C headers directly:
 
 ```zig
@@ -37,9 +32,7 @@ Configure include paths in `build.zig`:
 exe.addIncludePath(.{ .cwd_relative = "/usr/local/include" });
 exe.linkSystemLibrary("raylib");
 ```
-
 ## Extern Functions (System APIs)
-
 Call platform APIs without bindings using `extern`:
 
 ```zig
@@ -52,9 +45,7 @@ extern "user32" fn MessageBoxA(
     u32,
 ) callconv(.winapi) i32;
 ```
-
 ## C Callbacks
-
 Pass Zig functions to C libraries using `callconv(.C)`:
 
 ```zig
@@ -76,11 +67,9 @@ Key points:
 - `*anyopaque` is Zig's equivalent of `void*`
 - Use `@alignCast` and `@ptrCast` to recover typed pointers
 - Return 0 on error (C convention) since Zig errors can't cross FFI boundary
-
 ## C Types Mapping
-
 | C Type | Zig Type |
-|--------|----------|
+|---|---|
 | `void*` | `*anyopaque` |
 | `char*` | `[*:0]const u8` (null-terminated) |
 | `size_t` | `usize` |

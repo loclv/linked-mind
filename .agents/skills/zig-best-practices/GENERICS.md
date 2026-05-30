@@ -1,15 +1,10 @@
 # Generic Data Structures in Zig
-
 Use comptime type parameters to create reusable generic containers. Return a type from a function to build type-safe collections.
-
 ## When to Use
-
 - Implementing custom containers (queues, stacks, trees)
 - Building type-safe wrappers around allocations
 - Creating domain-specific collections
-
 ## Pattern: Type-Returning Function
-
 ```zig
 pub fn Queue(comptime Child: type) type {
     return struct {
@@ -46,16 +41,12 @@ pub fn Queue(comptime Child: type) type {
     };
 }
 ```
-
 ## Key Techniques
-
 - `@This()` returns the enclosing struct type for self-reference
 - Nested `Node` struct keeps implementation details private
 - Allocator passed to init, stored for later operations
 - `defer` for cleanup in dequeue prevents leaks
-
 ## Usage
-
 ```zig
 var queue = Queue(u32).init(allocator);
 try queue.enqueue(42);

@@ -1,17 +1,10 @@
 # Zig Naming Conventions
-
 ## Rule: Avoid Reserved Keywords as Identifiers
-
 When writing Zig code, never use reserved keywords as identifiers (variable names, function names, struct field names, etc.).
-
 ### Why This Matters
-
 Zig reserves certain words for its grammar and special features. Using these as identifiers causes compilation errors and confusion.
-
 ### Common Mistakes
-
 #### 1. Using `error` as a field name
-
 ```zig
 // ❌ This will not compile
 const Result = struct {
@@ -25,9 +18,7 @@ const Result = struct {
     err_msg: ?[]const u8,  // or error_msg, error_str, etc.
 };
 ```
-
 #### 2. Using other reserved keywords
-
 ```zig
 // ❌ These will all fail
 const Struct = struct {
@@ -45,9 +36,7 @@ const Struct = struct {
     return_value: void,
 };
 ```
-
 ### Complete List of Zig Reserved Keywords
-
 - `error`
 - `fn`
 - `const`
@@ -80,12 +69,10 @@ const Struct = struct {
 - `while`
 - `for`
 - `usingnamespace`
-
 ### Best Practices
+1. Use descriptive names: Instead of single words, use phrases that describe the purpose
 
-1. **Use descriptive names**: Instead of single words, use phrases that describe the purpose
-
-   ```zig
+```zig
    // Good
    error_message: []const u8,
    function_name: []const u8,
@@ -95,11 +82,11 @@ const Struct = struct {
    error: []const u8,
    fn: []const u8,
    const: bool,
-   ```
+```
 
-2. **Add suffixes or prefixes**: When a reserved word is the most natural choice, modify it
+2. Add suffixes or prefixes: When a reserved word is the most natural choice, modify it
 
-   ```zig
+```zig
    // Good alternatives for 'error'
    error_msg
    error_str
@@ -112,27 +99,25 @@ const Struct = struct {
    type_name
    data_type
    value_type
-   ```
+```
 
-3. **Use snake_case for fields and variables**: This is Zig's convention
+3. Use snake_case for fields and variables: This is Zig's convention
 
-   ```zig
+```zig
    const MyStruct = struct {
      field_name: Type,
      another_field: Type,
    };
-   ```
+```
 
-4. **Use PascalCase for type names**: This is Zig's convention
+4. Use PascalCase for type names: This is Zig's convention
 
-   ```zig
+```zig
    const MyStruct = struct { ... };
    const MyEnum = enum { ... };
    const MyUnion = union { ... };
-   ```
-
+```
 ### Real-World Example from SatiBot
-
 When fixing the OpenRouter provider, we encountered this issue:
 
 ```zig
@@ -152,17 +137,13 @@ const ChatAsyncResult = struct {
     err_msg: ?[]const u8 = null,  // ✅ Uses alternative name
 };
 ```
-
 ### Quick Check Before Naming
-
 Before using a name, ask yourself:
 
 1. Is this word a Zig keyword? (Check the list above)
 2. Is there a more descriptive alternative?
 3. Can I add a suffix/prefix to make it unique?
-
 ### Tools to Help
-
 - Your IDE will highlight reserved keywords
 - The compiler will give clear error messages
 - Keep this list handy when naming new identifiers
