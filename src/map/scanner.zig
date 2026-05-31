@@ -47,7 +47,12 @@ pub fn scanDir(alloc: std.mem.Allocator, io: std.Io, base: []const u8, rel: []co
 
     var it = dir.iterate();
     while (try it.next(io)) |entry| {
+        if (std.mem.startsWith(u8, entry.name, ".")) continue;
         if (entry.kind == .file) {
+            if (std.mem.endsWith(u8, entry.name, ".toon") or
+                std.mem.endsWith(u8, entry.name, ".json") or
+                std.mem.endsWith(u8, entry.name, ".csv")) continue;
+
             const fpath = if (rel.len == 0)
                 try std.fs.path.join(alloc, &.{ base, entry.name })
             else

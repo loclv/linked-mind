@@ -89,7 +89,15 @@ pub fn main(init: std.process.Init) !void {
 
     const dir_to_scan = target_dir orelse "docs";
     const default_out = if (format_json) "map.json" else "map.toon";
-    const out_path = output_file orelse default_out;
+    
+    // Resolve out_path: if target_dir is explicitly specified, default to writing inside it.
+    const out_path = if (output_file) |o|
+        try alloc.dupe(u8, o)
+    else if (target_dir) |td|
+        try std.fs.path.join(alloc, &.{ td, default_out })
+    else
+        try alloc.dupe(u8, default_out);
+    defer alloc.free(out_path);
 
     var entries = try scanner.scanDir(alloc, io, dir_to_scan, "");
     defer {
@@ -123,6 +131,8 @@ pub fn main(init: std.process.Init) !void {
         if (!up_to_date) {
             try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = out_path, .data = out });
             std.debug.print("Updated {s} with {d} entries.\n", .{out_path, entries.items.len});
+        } else {
+            std.debug.print("nothing changed, didn't update {s}\n", .{out_path});
         }
     } else {
         var toon_writer = std.Io.Writer.Allocating.init(alloc);
@@ -149,6 +159,8 @@ pub fn main(init: std.process.Init) !void {
         if (!up_to_date) {
             try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = out_path, .data = out });
             std.debug.print("Updated {s} with {d} entries.\n", .{out_path, entries.items.len});
+        } else {
+            std.debug.print("nothing changed, didn't update {s}\n", .{out_path});
         }
     }
 }

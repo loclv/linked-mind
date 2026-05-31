@@ -1,0 +1,16 @@
+[5]:
+  - name: architecture
+    description: 🏗 Architecture & Design
+    path: ARCHITECTURE.md
+  - name: llm-strategy
+    description: 🧠 Boosting LLM Intelligence with Linked-Mind
+    path: LLM_STRATEGY.md
+  - name: Map Index
+    description: "The Documentation Index Map System (compiled as the map-builder executable target) scans the docs directory in your workspace, extracts metadata from each file (frontmatter for Markdown, comments and filenames for Zig), and rebuilds the structured index map representing your knowledge base."
+    path: MAP_INDEX.md
+  - name: llm-wiki
+    description: "Source: https://gist.githubusercontent.com/karpathy/442a6bf555914893e9891c11519de94f/raw"
+    path: llm_wiki.md
+  - name: map
+    description: `map.csv` - CSV Data Format for mapping knowledge base
+    path: map.md
