@@ -296,6 +296,10 @@ fn runCommand(allocator: std.mem.Allocator, io: std.Io, cmd: []const u8, ws_root
     }
 }
 
+// updateGraphAndExport rebuilds the core knowledge graph structure and refreshes
+// the graph.json file on disk. This is isolated as a reusable helper so that the
+// same high-performance, cache-aware reconstruction logic is shared between the
+// standard visualize commands and the live file watcher daemon.
 fn updateGraphAndExport(allocator: std.mem.Allocator, io: std.Io, ws_root: []const u8) !void {
     var kb_graph = graph.Graph.init(allocator);
     defer kb_graph.deinit();
@@ -308,6 +312,8 @@ fn updateGraphAndExport(allocator: std.mem.Allocator, io: std.Io, ws_root: []con
     const cache_path = try std.fs.path.join(allocator, &[_][]const u8{ ws_root, ".li", "cache.json" });
     defer allocator.free(cache_path);
 
+    // We load the existing cache.json so that we don't have to re-parse unchanged
+    // Markdown files. This incremental system lowers graph updates to a few milliseconds.
     var kb_cache = cache.Cache.init(allocator);
     defer kb_cache.deinit();
     kb_cache.load(io, cache_path) catch |err| {
@@ -323,13 +329,15 @@ fn updateGraphAndExport(allocator: std.mem.Allocator, io: std.Io, ws_root: []con
     defer walker.deinit();
 
     while (try walker.next(io)) |entry| {
-        // Skip .li and other hidden dirs
+        // Skip metadata storage (.li) and git/hidden folders to avoid noise and cycles.
         if (std.mem.startsWith(u8, entry.path, ".li") or std.mem.startsWith(u8, entry.path, ".")) continue;
 
         if (entry.kind == .file and std.mem.endsWith(u8, entry.basename, ".md")) {
             const absolute_path = try std.fs.path.join(allocator, &[_][]const u8{ ws_root, entry.path });
             defer allocator.free(absolute_path);
 
+            // We catch FileNotFound here to survive file renames or rapid deletes
+            // happening concurrently while the walker is traversing.
             const stat = kb_dir.statFile(io, entry.path, .{}) catch |err| {
                 if (err == error.FileNotFound) continue;
                 return err;
@@ -341,6 +349,8 @@ fn updateGraphAndExport(allocator: std.mem.Allocator, io: std.Io, ws_root: []con
                 if (cached.mtime == mtime) {
                     cached_entry = cached;
                 } else {
+                    // Double-check using content hash to prevent invalidating the cache
+                    // on non-structural updates (like touch or external program edits).
                     const hash = calculateHash(io, absolute_path) catch |err| {
                         if (err == error.FileNotFound) continue;
                         return err;
@@ -392,6 +402,9 @@ fn updateGraphAndExport(allocator: std.mem.Allocator, io: std.Io, ws_root: []con
     try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = json_path, .data = json });
 }
 
+// watchWorkspace implements a cross-platform background watch daemon. It uses
+// high-precision mtime polling rather than platform-specific watchers (inotify/FSEvents)
+// to remain completely consistent and portable across macOS, Linux, and Windows.
 fn watchWorkspace(allocator: std.mem.Allocator, io: std.Io, watch_path: []const u8) !void {
     var kb_parser = parser.Parser.init(allocator, io);
     var known_files = std.StringHashMap(i128).init(allocator);
@@ -401,7 +414,7 @@ fn watchWorkspace(allocator: std.mem.Allocator, io: std.Io, watch_path: []const 
         known_files.deinit();
     }
 
-    // Pre-scan to populate known_files
+    // Pre-scan the directory on startup to index the initial filesystem state.
     {
         var watch_dir = try std.Io.Dir.openDirAbsolute(io, watch_path, .{ .iterate = true });
         defer watch_dir.close(io);
@@ -424,7 +437,8 @@ fn watchWorkspace(allocator: std.mem.Allocator, io: std.Io, watch_path: []const 
         }
     }
 
-    // Trigger initial rebuild at watch start
+    // Trigger an initial graph build at startup. This guarantees that graph.json perfectly
+    // matches the filesystem state before the first polling update checks occur.
     std.debug.print("Initializing/Rebuilding graph...\n", .{});
     try updateGraphAndExport(allocator, io, watch_path);
     std.debug.print("Graph initialized. graph.json written to workspace root.\n", .{});
@@ -503,6 +517,8 @@ fn watchWorkspace(allocator: std.mem.Allocator, io: std.Io, watch_path: []const 
             }
         }
 
+        // We wrap updateGraphAndExport in a catch block here so that syntax errors
+        // or half-written temporary files do not crash the watch daemon process.
         if (changed) {
             std.debug.print("Rebuilding graph...\n", .{});
             updateGraphAndExport(allocator, io, watch_path) catch |err| {

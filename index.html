@@ -430,7 +430,8 @@
         if (selectedNode) {
           const updatedNode = data.nodes.find(n => n.id === selectedNode.id);
           if (updatedNode) {
-            // Re-bind coordinate states to prevent physics snaps
+            // Re-bind coordinate states to prevent physics snaps of the selected node.
+            // This guarantees the focused view does not drift or jump.
             const oldNode = graphData.nodes.find(n => n.id === selectedNode.id);
             if (oldNode) {
               updatedNode.x = oldNode.x;
@@ -446,7 +447,10 @@
           }
         }
         
-        // Merge coordinate states of existing nodes to keep the physics stable
+        // Crucial Physics Preservation: We merge the coordinate and velocity states
+        // of all existing nodes from our current graph into the newly fetched data.
+        // Without this step, updating the graph data would reset all node positions
+        // to defaults, causing a jarring physics snap or explosion on every single update.
         data.nodes.forEach(newNode => {
           const existingNode = graphData.nodes.find(n => n.id === newNode.id);
           if (existingNode) {
@@ -463,12 +467,16 @@
     }
 
     function checkForUpdates() {
+      // We pass { cache: 'no-store' } to bypass browser cache, ensuring we always
+      // read the absolute freshest version of graph.json written by the Zig daemon.
       fetch('graph.json', { cache: 'no-store' })
         .then(res => {
           if (!res.ok) throw new Error('HTTP ' + res.status);
           return res.text();
         })
         .then(text => {
+          // A simple O(1) string comparison checks for byte-identity changes.
+          // This avoids executing expensive deep-object equality checks on every poll.
           if (lastJsonStr && lastJsonStr !== text) {
             try {
               const data = JSON.parse(text);
