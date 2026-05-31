@@ -70,9 +70,11 @@ Example of map.json index structure:
 
 The map-builder target binary can be executed directly to scan a target directory and generate index files.
 
+To optimize disk performance and keep console outputs clean, map-builder compares newly scanned and built indexes with the existing files. The index file is only written to disk and an update message printed when actual changes in the contents or entry list have occurred. Otherwise, it runs silently.
+
 ### Basic Usage
 
-Generate map.toon from the default `docs` directory:
+Generate map.toon from the default docs directory:
 
 ```bash
 zig-out/bin/map-builder

@@ -24,6 +24,7 @@
 
 ### Changed
 
+- Optimized map-builder to skip writing file contents and printing update logs when the newly scanned index matches the existing file contents exactly.
 - Integrated automatic real-time `map.json` regeneration into `updateGraphAndExport`, ensuring `map.json` updates dynamically on any file change detected by the background watch daemon.
 - Refactored `src/map.zig` into a modular package architecture consisting of `metadata.zig`, `utils.zig`, `entry.zig`, and `scanner.zig`.
 - Updated `AGENTS.md` with detailed Zig 0.16.0 experience notes covering `std.Io.Writer.Allocating` and custom JSON stringification.

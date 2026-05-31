@@ -110,8 +110,20 @@ pub fn main(init: std.process.Init) !void {
         const out = try json_writer.toOwnedSlice();
         defer alloc.free(out);
 
-        try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = out_path, .data = out });
-        std.debug.print("Updated {s} with {d} entries.\n", .{out_path, entries.items.len});
+        // Check if the file already exists and has the exact same content
+        // to avoid unnecessary disk writes and suppress the update output.
+        var up_to_date = false;
+        if (std.Io.Dir.cwd().readFileAlloc(io, out_path, alloc, .unlimited)) |existing_data| {
+            defer alloc.free(existing_data);
+            if (std.mem.eql(u8, existing_data, out)) {
+                up_to_date = true;
+            }
+        } else |_| {}
+
+        if (!up_to_date) {
+            try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = out_path, .data = out });
+            std.debug.print("Updated {s} with {d} entries.\n", .{out_path, entries.items.len});
+        }
     } else {
         var toon_writer = std.Io.Writer.Allocating.init(alloc);
         defer toon_writer.deinit();
@@ -124,8 +136,20 @@ pub fn main(init: std.process.Init) !void {
         const out = try toon_writer.toOwnedSlice();
         defer alloc.free(out);
 
-        try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = out_path, .data = out });
-        std.debug.print("Updated {s} with {d} entries.\n", .{out_path, entries.items.len});
+        // Check if the file already exists and has the exact same content
+        // to avoid unnecessary disk writes and suppress the update output.
+        var up_to_date = false;
+        if (std.Io.Dir.cwd().readFileAlloc(io, out_path, alloc, .unlimited)) |existing_data| {
+            defer alloc.free(existing_data);
+            if (std.mem.eql(u8, existing_data, out)) {
+                up_to_date = true;
+            }
+        } else |_| {}
+
+        if (!up_to_date) {
+            try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = out_path, .data = out });
+            std.debug.print("Updated {s} with {d} entries.\n", .{out_path, entries.items.len});
+        }
     }
 }
 
