@@ -408,6 +408,45 @@ fn updateGraphAndExport(allocator: std.mem.Allocator, io: std.Io, ws_root: []con
     const json_path = try std.fs.path.join(allocator, &[_][]const u8{ ws_root, "graph.json" });
     defer allocator.free(json_path);
     try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = json_path, .data = json });
+
+    // Also rebuild map.json for the docs directory under ws_root
+    const docs_path = try std.fs.path.join(allocator, &.{ ws_root, "docs" });
+    defer allocator.free(docs_path);
+
+    var docs_dir = std.Io.Dir.openDirAbsolute(io, docs_path, .{});
+    if (docs_dir) |*d| {
+        d.close(io);
+
+        const map_scanner = @import("map/scanner.zig");
+        const map_entry = @import("map/entry.zig");
+
+        var entries = try map_scanner.scanDir(allocator, io, docs_path, "");
+        defer {
+            for (entries.items) |*e| e.deinit(allocator);
+            entries.deinit(allocator);
+        }
+
+        std.mem.sort(map_entry.Entry, entries.items, {}, map_entry.entryLessThan);
+
+        var json_writer = std.Io.Writer.Allocating.init(allocator);
+        defer json_writer.deinit();
+
+        var stringify = std.json.Stringify{ .writer = &json_writer.writer, .options = .{ .whitespace = .indent_2 } };
+        try stringify.write(entries.items);
+        try json_writer.writer.writeByte('\n');
+
+        const out = try json_writer.toOwnedSlice();
+        defer allocator.free(out);
+
+        const map_json_path = try std.fs.path.join(allocator, &.{ ws_root, "map.json" });
+        defer allocator.free(map_json_path);
+
+        try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = map_json_path, .data = out });
+    } else |err| {
+        if (err != error.FileNotFound) {
+            return err;
+        }
+    }
 }
 
 // watchWorkspace implements a cross-platform background watch daemon. It uses
