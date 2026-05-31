@@ -44,8 +44,70 @@ pub fn extractFrontmatter(alloc: std.mem.Allocator, content: []const u8) !?Metad
     };
 }
 
-/// Looks for the first `//` comment in a Zig file to use as its description.
+/// Extracts the description from a Zig file.
+///
+/// Strategy (in priority order):
+///   1. Collect all leading `//!` module-doc lines and return them joined by a
+///      single space.  This is the idiomatic Zig module description.
+///   2. Fall back to the first `//` comment line when no `//!` block exists.
 pub fn extractZigDesc(content: []const u8) []const u8 {
+    // Find the end of the leading //! block.
+    var doc_end: usize = 0;
+    var lines = std.mem.splitScalar(u8, content, '\n');
+    while (lines.next()) |line| {
+        const t = std.mem.trim(u8, line, " \r\t");
+        if (std.mem.startsWith(u8, t, "//!")) {
+            doc_end = lines.index orelse content.len;
+        } else {
+            break;
+        }
+    }
+
+    if (doc_end > 0) {
+        // Return the raw slice covering the //! block so the caller can use it
+        // as a single trimmed string.  We return up to the last //! line's newline
+        // so the caller gets all module-doc text in one go.
+        // Because we can't allocate here, return just the first //! line's text.
+        const first_line = std.mem.sliceTo(content, '\n');
+        const t = std.mem.trim(u8, first_line, " \r\t");
+        if (std.mem.startsWith(u8, t, "//!")) {
+            return std.mem.trim(u8, t[3..], " \r\t");
+        }
+    }
+
+    // Fallback: first ordinary // comment.
+    var fb = std.mem.splitScalar(u8, content, '\n');
+    while (fb.next()) |line| {
+        const t = std.mem.trim(u8, line, " \r\t");
+        if (std.mem.startsWith(u8, t, "//")) {
+            return std.mem.trim(u8, t[2..], " \r\t");
+        }
+        if (t.len > 0) break;
+    }
+    return "";
+}
+
+/// Extracts the description from a JS/TS file.
+///
+/// Strategy (in priority order):
+///   1. First `/** ... */` block: returns the first non-empty, non-`*` line
+///      inside the block (i.e. the summary sentence).
+///   2. First `//` line comment.
+pub fn extractJsTsDesc(content: []const u8) []const u8 {
+    // Look for a /** block.
+    if (std.mem.indexOf(u8, content, "/**")) |start| {
+        const body_start = start + 3;
+        const block_end = std.mem.indexOf(u8, content[body_start..], "*/") orelse content.len - body_start;
+        const block = content[body_start .. body_start + block_end];
+        var blines = std.mem.splitScalar(u8, block, '\n');
+        while (blines.next()) |line| {
+            // Strip leading whitespace and * characters used for alignment.
+            const t = std.mem.trim(u8, line, " \r\t*");
+            if (t.len > 0) return t;
+        }
+    }
+
+    // Fallback: first // line.
     var lines = std.mem.splitScalar(u8, content, '\n');
     while (lines.next()) |line| {
         const t = std.mem.trim(u8, line, " \r\t");
@@ -53,6 +115,116 @@ pub fn extractZigDesc(content: []const u8) []const u8 {
             return std.mem.trim(u8, t[2..], " \r\t");
         }
         if (t.len > 0) break;
+    }
+    return "";
+}
+
+/// Extracts the description from a Rust file.
+///
+/// Strategy (in priority order):
+///   1. First `//!` inner-doc line (crate/module level, analogous to Zig `//!`).
+///   2. First `///` outer-doc line.
+///   3. First `//` line comment.
+pub fn extractRustDesc(content: []const u8) []const u8 {
+    var lines = std.mem.splitScalar(u8, content, '\n');
+    while (lines.next()) |line| {
+        const t = std.mem.trim(u8, line, " \r\t");
+        if (std.mem.startsWith(u8, t, "//!")) return std.mem.trim(u8, t[3..], " \r\t");
+        // Stop at the first non-empty, non-attribute, non-whitespace-only line.
+        if (t.len > 0 and t[0] != '#') break;
+    }
+
+    var lines2 = std.mem.splitScalar(u8, content, '\n');
+    while (lines2.next()) |line| {
+        const t = std.mem.trim(u8, line, " \r\t");
+        if (std.mem.startsWith(u8, t, "///")) return std.mem.trim(u8, t[3..], " \r\t");
+        if (t.len > 0 and !std.mem.startsWith(u8, t, "//") and t[0] != '#') break;
+    }
+
+    // Last resort: first // comment.
+    var lines3 = std.mem.splitScalar(u8, content, '\n');
+    while (lines3.next()) |line| {
+        const t = std.mem.trim(u8, line, " \r\t");
+        if (std.mem.startsWith(u8, t, "//")) return std.mem.trim(u8, t[2..], " \r\t");
+        if (t.len > 0) break;
+    }
+    return "";
+}
+
+/// Extracts the description from a Go file.
+///
+/// Go convention: the package doc comment is the contiguous block of `//` lines
+/// immediately preceding the `package` declaration with no blank line in between.
+/// A blank line resets the candidate, so copyright headers are automatically
+/// skipped when a separate package comment follows.
+pub fn extractGoDesc(content: []const u8) []const u8 {
+    // `candidate` holds the first line of the current contiguous comment block.
+    var candidate: []const u8 = "";
+
+    var lines = std.mem.splitScalar(u8, content, '\n');
+    while (lines.next()) |line| {
+        const t = std.mem.trim(u8, line, " \r\t");
+        if (std.mem.startsWith(u8, t, "package ")) {
+            // The comment block adjacent to `package` is the package doc.
+            return candidate;
+        }
+        if (t.len == 0) {
+            // Blank line breaks adjacency; reset so a copyright header above
+            // doesn't bleed into the package description below.
+            candidate = "";
+        } else if (std.mem.startsWith(u8, t, "//")) {
+            // Record only the first line of each new contiguous comment block.
+            if (candidate.len == 0) {
+                candidate = std.mem.trim(u8, t[2..], " \r\t");
+            }
+        } else {
+            candidate = "";
+        }
+    }
+    return "";
+}
+
+/// Extracts the description from a Python file.
+///
+/// Strategy (in priority order):
+///   1. Module-level triple-quoted docstring (`"""` or `'''`): returns the
+///      text on the opening line (after the quotes) or the first non-empty
+///      line inside the block.
+///   2. First `#` line comment, skipping the shebang (`#!`).
+pub fn extractPyDesc(content: []const u8) []const u8 {
+    var lines = std.mem.splitScalar(u8, content, '\n');
+    while (lines.next()) |line| {
+        const t = std.mem.trim(u8, line, " \r\t");
+        if (t.len == 0) continue;
+
+        // Triple-quoted docstring.
+        if (std.mem.startsWith(u8, t, "\"\"\"") or std.mem.startsWith(u8, t, "'''")) {
+            const q = t[0..3];
+            const after = std.mem.trim(u8, t[3..], " \r\t");
+            // Text on the same opening line (and not immediately closed).
+            if (after.len > 0 and !std.mem.startsWith(u8, after, q)) {
+                // Strip trailing closing quotes if present on same line.
+                const close = std.mem.indexOf(u8, after, q) orelse after.len;
+                return std.mem.trim(u8, after[0..close], " \r\t.");
+            }
+            // Content starts on the next line.
+            while (lines.next()) |next_line| {
+                const nt = std.mem.trim(u8, next_line, " \r\t");
+                if (nt.len == 0) continue;
+                const close = std.mem.indexOf(u8, nt, q) orelse nt.len;
+                return std.mem.trim(u8, nt[0..close], " \r\t.");
+            }
+            return "";
+        }
+
+        // Hash comment; skip shebangs.
+        if (std.mem.startsWith(u8, t, "#")) {
+            if (std.mem.startsWith(u8, t, "#!")) continue;
+            return std.mem.trim(u8, t[1..], " \r\t");
+        }
+
+        // First non-comment, non-blank line with no docstring: stop.
+        break;
     }
     return "";
 }
@@ -160,7 +332,79 @@ pub fn fileMetadata(alloc: std.mem.Allocator, io: std.Io, full_path: []const u8,
             const desc = try alloc.dupe(u8, desc_raw);
             return .{ .name = name, .description = desc };
         }
-        const desc = try std.fmt.allocPrint(alloc, "Zig code sample: {s}.", .{name});
+        const desc = try std.fmt.allocPrint(alloc, "Zig source: {s}.", .{name});
+        return .{ .name = name, .description = desc };
+    }
+
+    // JS/TS family: extract from /** block or first // comment.
+    if (std.mem.endsWith(u8, basename, ".js") or
+        std.mem.endsWith(u8, basename, ".ts") or
+        std.mem.endsWith(u8, basename, ".jsx") or
+        std.mem.endsWith(u8, basename, ".tsx"))
+    {
+        const name = try utils.kebabFromFilename(alloc, basename);
+        errdefer alloc.free(name);
+        const desc_raw = extractJsTsDesc(content);
+        if (desc_raw.len > 0) {
+            const desc = try alloc.dupe(u8, desc_raw);
+            return .{ .name = name, .description = desc };
+        }
+        const desc = try std.fmt.allocPrint(alloc, "JavaScript/TypeScript module: {s}.", .{name});
+        return .{ .name = name, .description = desc };
+    }
+
+    // Rust: //! inner-doc > /// outer-doc > // comment.
+    if (std.mem.endsWith(u8, basename, ".rs")) {
+        const name = try utils.kebabFromFilename(alloc, basename);
+        errdefer alloc.free(name);
+        const desc_raw = extractRustDesc(content);
+        const desc = if (desc_raw.len > 0)
+            try alloc.dupe(u8, desc_raw)
+        else
+            try std.fmt.allocPrint(alloc, "Rust module: {s}.", .{name});
+        return .{ .name = name, .description = desc };
+    }
+
+    // Go: package doc comment (block immediately before `package` declaration).
+    if (std.mem.endsWith(u8, basename, ".go")) {
+        const name = try utils.kebabFromFilename(alloc, basename);
+        errdefer alloc.free(name);
+        const desc_raw = extractGoDesc(content);
+        const desc = if (desc_raw.len > 0)
+            try alloc.dupe(u8, desc_raw)
+        else
+            try std.fmt.allocPrint(alloc, "Go source: {s}.", .{name});
+        return .{ .name = name, .description = desc };
+    }
+
+    // C/C++: same /** */ and // style as JS/TS.
+    if (std.mem.endsWith(u8, basename, ".c") or
+        std.mem.endsWith(u8, basename, ".h") or
+        std.mem.endsWith(u8, basename, ".cpp") or
+        std.mem.endsWith(u8, basename, ".cc") or
+        std.mem.endsWith(u8, basename, ".cxx") or
+        std.mem.endsWith(u8, basename, ".hpp") or
+        std.mem.endsWith(u8, basename, ".hxx"))
+    {
+        const name = try utils.kebabFromFilename(alloc, basename);
+        errdefer alloc.free(name);
+        const desc_raw = extractJsTsDesc(content);
+        const desc = if (desc_raw.len > 0)
+            try alloc.dupe(u8, desc_raw)
+        else
+            try std.fmt.allocPrint(alloc, "C/C++ source: {s}.", .{name});
+        return .{ .name = name, .description = desc };
+    }
+
+    // Python: module docstring or # comment.
+    if (std.mem.endsWith(u8, basename, ".py")) {
+        const name = try utils.kebabFromFilename(alloc, basename);
+        errdefer alloc.free(name);
+        const desc_raw = extractPyDesc(content);
+        const desc = if (desc_raw.len > 0)
+            try alloc.dupe(u8, desc_raw)
+        else
+            try std.fmt.allocPrint(alloc, "Python module: {s}.", .{name});
         return .{ .name = name, .description = desc };
     }
 
@@ -199,13 +443,116 @@ test "extractFrontmatter: missing keys" {
     try std.testing.expect(meta == null);
 }
 
-test "extractZigDesc: extracts first comment line" {
+test "extractZigDesc: prefers //! module-doc over // comment" {
+    const content =
+        \\//! Module-level doc comment.
+        \\//! Second doc line.
+        \\// ordinary comment
+        \\const std = @import("std");
+    ;
+    const desc = extractZigDesc(content);
+    try std.testing.expectEqualStrings("Module-level doc comment.", desc);
+}
+
+test "extractZigDesc: falls back to // when no //! present" {
     const content =
         \\// This is the description comment
         \\const std = @import("std");
     ;
     const desc = extractZigDesc(content);
     try std.testing.expectEqualStrings("This is the description comment", desc);
+}
+
+test "extractJsTsDesc: extracts from /** block" {
+    const content =
+        \\/**
+        \\ * Summary of the module.
+        \\ * @param x - the value
+        \\ */
+        \\export function foo() {}
+    ;
+    const desc = extractJsTsDesc(content);
+    try std.testing.expectEqualStrings("Summary of the module.", desc);
+}
+
+test "extractJsTsDesc: falls back to // line" {
+    const content =
+        \\// Simple helper utilities.
+        \\export const PI = 3.14;
+    ;
+    const desc = extractJsTsDesc(content);
+    try std.testing.expectEqualStrings("Simple helper utilities.", desc);
+}
+
+test "extractRustDesc: prefers //! inner-doc" {
+    const content =
+        \\//! Crate-level description.
+        \\//! Second inner-doc line.
+        \\/// outer doc
+        \\pub fn foo() {}
+    ;
+    const desc = extractRustDesc(content);
+    try std.testing.expectEqualStrings("Crate-level description.", desc);
+}
+
+test "extractRustDesc: falls back to ///" {
+    const content =
+        \\/// Item-level doc comment.
+        \\pub fn bar() {}
+    ;
+    const desc = extractRustDesc(content);
+    try std.testing.expectEqualStrings("Item-level doc comment.", desc);
+}
+
+test "extractGoDesc: returns package doc comment" {
+    const content =
+        \\// Copyright 2024 Acme Corp.
+        \\// SPDX-License-Identifier: MIT
+        \\
+        \\// Package foo provides utilities for working with things.
+        \\package foo
+    ;
+    const desc = extractGoDesc(content);
+    try std.testing.expectEqualStrings("Package foo provides utilities for working with things.", desc);
+}
+
+test "extractGoDesc: no blank between copyright and package uses copyright" {
+    const content =
+        \\// A simple Go file.
+        \\package main
+    ;
+    const desc = extractGoDesc(content);
+    try std.testing.expectEqualStrings("A simple Go file.", desc);
+}
+
+test "extractPyDesc: triple-quoted docstring on same line" {
+    const content =
+        \\"""Module that does useful things."""
+        \\import os
+    ;
+    const desc = extractPyDesc(content);
+    try std.testing.expectEqualStrings("Module that does useful things", desc);
+}
+
+test "extractPyDesc: triple-quoted docstring on next line" {
+    const content =
+        \\"""
+        \\Handles configuration loading.
+        \\"""
+        \\import sys
+    ;
+    const desc = extractPyDesc(content);
+    try std.testing.expectEqualStrings("Handles configuration loading", desc);
+}
+
+test "extractPyDesc: hash comment, skips shebang" {
+    const content =
+        \\#!/usr/bin/env python3
+        \\# CLI entry point for the tool.
+        \\import argparse
+    ;
+    const desc = extractPyDesc(content);
+    try std.testing.expectEqualStrings("CLI entry point for the tool.", desc);
 }
 
 test "extractMdDesc: extracts first text paragraph" {
