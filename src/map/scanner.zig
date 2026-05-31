@@ -2,7 +2,7 @@ const std = @import("std");
 const entry_mod = @import("entry.zig");
 const metadata_mod = @import("metadata.zig");
 const utils = @import("utils.zig");
-const gitignore_mod = @import("gitignore.zig");
+const gitignore_mod = @import("handle_gitignore.zig");
 
 const Entry = entry_mod.Entry;
 const Metadata = metadata_mod.Metadata;
