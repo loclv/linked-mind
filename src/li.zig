@@ -296,6 +296,102 @@ fn runCommand(allocator: std.mem.Allocator, io: std.Io, cmd: []const u8, ws_root
     }
 }
 
+fn updateGraphAndExport(allocator: std.mem.Allocator, io: std.Io, ws_root: []const u8) !void {
+    var kb_graph = graph.Graph.init(allocator);
+    defer kb_graph.deinit();
+
+    var kb_parser = parser.Parser.init(allocator, io);
+
+    var kb_dir = try std.Io.Dir.openDirAbsolute(io, ws_root, .{ .iterate = true });
+    defer kb_dir.close(io);
+
+    const cache_path = try std.fs.path.join(allocator, &[_][]const u8{ ws_root, ".li", "cache.json" });
+    defer allocator.free(cache_path);
+
+    var kb_cache = cache.Cache.init(allocator);
+    defer kb_cache.deinit();
+    kb_cache.load(io, cache_path) catch |err| {
+        if (err != error.FileNotFound) {
+            std.debug.print("Note: Could not load cache: {any}. Starting fresh.\n", .{err});
+        }
+    };
+
+    var new_cache = cache.Cache.init(allocator);
+    defer new_cache.deinit();
+
+    var walker = try kb_dir.walk(allocator);
+    defer walker.deinit();
+
+    while (try walker.next(io)) |entry| {
+        // Skip .li and other hidden dirs
+        if (std.mem.startsWith(u8, entry.path, ".li") or std.mem.startsWith(u8, entry.path, ".")) continue;
+
+        if (entry.kind == .file and std.mem.endsWith(u8, entry.basename, ".md")) {
+            const absolute_path = try std.fs.path.join(allocator, &[_][]const u8{ ws_root, entry.path });
+            defer allocator.free(absolute_path);
+
+            const stat = kb_dir.statFile(io, entry.path, .{}) catch |err| {
+                if (err == error.FileNotFound) continue;
+                return err;
+            };
+            const mtime = @as(i128, stat.mtime.toNanoseconds());
+
+            var cached_entry: ?*cache.CacheEntry = null;
+            if (kb_cache.entries.getPtr(absolute_path)) |cached| {
+                if (cached.mtime == mtime) {
+                    cached_entry = cached;
+                } else {
+                    const hash = calculateHash(io, absolute_path) catch |err| {
+                        if (err == error.FileNotFound) continue;
+                        return err;
+                    };
+                    if (std.mem.eql(u8, &hash, &cached.hash)) {
+                        cached_entry = cached;
+                        cached_entry.?.*.mtime = mtime;
+                    }
+                }
+            }
+
+            if (cached_entry) |ce| {
+                try kb_graph.addNode(try ce.node.clone(allocator));
+                try new_cache.entries.put(try allocator.dupe(u8, absolute_path), .{
+                    .mtime = ce.mtime,
+                    .hash = ce.hash,
+                    .node = try ce.node.clone(allocator),
+                });
+            } else {
+                var node = kb_parser.parseFile(absolute_path) catch |err| {
+                    if (err == error.FileNotFound) continue;
+                    return err;
+                };
+                const hash = calculateHash(io, absolute_path) catch |err| {
+                    node.deinit(allocator);
+                    if (err == error.FileNotFound) continue;
+                    return err;
+                };
+                try kb_graph.addNode(try node.clone(allocator));
+                try new_cache.entries.put(try allocator.dupe(u8, absolute_path), .{
+                    .mtime = mtime,
+                    .hash = hash,
+                    .node = node,
+                });
+            }
+        }
+    }
+
+    try new_cache.save(io, cache_path);
+
+    try kb_graph.resolveBacklinks();
+    var pr_scores = try kb_graph.computePageRank(10);
+    defer pr_scores.deinit();
+
+    const json = try kb_graph.exportGraphJson();
+    defer allocator.free(json);
+    const json_path = try std.fs.path.join(allocator, &[_][]const u8{ ws_root, "graph.json" });
+    defer allocator.free(json_path);
+    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = json_path, .data = json });
+}
+
 fn watchWorkspace(allocator: std.mem.Allocator, io: std.Io, watch_path: []const u8) !void {
     var kb_parser = parser.Parser.init(allocator, io);
     var known_files = std.StringHashMap(i128).init(allocator);
@@ -327,6 +423,11 @@ fn watchWorkspace(allocator: std.mem.Allocator, io: std.Io, watch_path: []const 
             }
         }
     }
+
+    // Trigger initial rebuild at watch start
+    std.debug.print("Initializing/Rebuilding graph...\n", .{});
+    try updateGraphAndExport(allocator, io, watch_path);
+    std.debug.print("Graph initialized. graph.json written to workspace root.\n", .{});
 
     std.debug.print("Watching {s} for changes... (Press Ctrl+C to stop)\n", .{watch_path});
 
@@ -364,11 +465,14 @@ fn watchWorkspace(allocator: std.mem.Allocator, io: std.Io, watch_path: []const 
             }
         }
 
+        var changed = false;
+
         // Check for deleted files
         var known_iter = known_files.iterator();
         while (known_iter.next()) |entry| {
             if (!current_files.contains(entry.key_ptr.*)) {
                 std.debug.print("{{\"event\": \"deleted\", \"path\": \"{s}\"}}\n", .{entry.key_ptr.*});
+                changed = true;
             }
         }
 
@@ -386,6 +490,7 @@ fn watchWorkspace(allocator: std.mem.Allocator, io: std.Io, watch_path: []const 
                     std.debug.print("{{\"event\": \"updated\", \"path\": \"{s}\", \"node\": ", .{path});
                     serializeNodeToDebug(node);
                     std.debug.print("}}\n", .{});
+                    changed = true;
                 }
             } else {
                 // Created
@@ -394,7 +499,16 @@ fn watchWorkspace(allocator: std.mem.Allocator, io: std.Io, watch_path: []const 
                 std.debug.print("{{\"event\": \"created\", \"path\": \"{s}\", \"node\": ", .{path});
                 serializeNodeToDebug(node);
                 std.debug.print("}}\n", .{});
+                changed = true;
             }
+        }
+
+        if (changed) {
+            std.debug.print("Rebuilding graph...\n", .{});
+            updateGraphAndExport(allocator, io, watch_path) catch |err| {
+                std.debug.print("Error rebuilding graph: {any}\n", .{err});
+            };
+            std.debug.print("Graph rebuilt and graph.json updated.\n", .{});
         }
 
         // Update known_files

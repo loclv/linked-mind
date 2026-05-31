@@ -246,6 +246,39 @@
     .hidden {
       display: none !important;
     }
+
+    /* Glassmorphism live-update toasts */
+    .toast {
+      background: rgba(69, 162, 158, 0.2);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(102, 252, 241, 0.3);
+      border-radius: 8px;
+      color: #fff;
+      padding: 12px 20px;
+      font-size: 14px;
+      font-weight: 600;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      transform: translateY(100px);
+      opacity: 0;
+      transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.4s;
+      margin-top: 10px;
+      pointer-events: auto;
+    }
+
+    .toast.show {
+      transform: translateY(0);
+      opacity: 1;
+    }
+
+    .toast-icon {
+      color: var(--text-highlight);
+      font-size: 16px;
+      animation: pulse 1.5s infinite alternate;
+    }
   </style>
 </head>
 <body>
@@ -287,6 +320,8 @@
     </div>
   </aside>
 
+  <div id="toast-container" style="position: absolute; bottom: 24px; left: 24px; z-index: 100; pointer-events: none;"></div>
+
   <script>
     const colorPalette = [
       '#66fcf1', '#45a29e', '#f2a900', '#e94b3c', '#9b59b6', '#3498db', '#e67e22', '#2ecc71', '#1abc9c', '#f39c12'
@@ -295,25 +330,47 @@
     let graphData = null;
     let selectedNode = null;
     let graphInstance = null;
+    let lastJsonStr = '';
     const sidebar = document.getElementById('sidebar');
 
-    fetch('graph.json')
-      .then(res => res.json())
-      .then(data => {
-        document.getElementById('loader').classList.add('hidden');
+    function showToast(message) {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      toast.className = 'toast';
+      toast.innerHTML = `
+        <span class="toast-icon">⚡</span>
+        <span class="toast-msg">${message}</span>
+      `;
+      container.appendChild(toast);
+      
+      // Trigger animation
+      setTimeout(() => toast.classList.add('show'), 50);
+      
+      // Auto remove
+      setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 400);
+      }, 3000);
+    }
+
+    function initOrUpdateGraph(data) {
+      document.getElementById('loader').classList.add('hidden');
+      
+      // Calculate node degrees for sizing
+      const nodeDegrees = {};
+      data.links.forEach(link => {
+        const srcId = link.source.id || link.source;
+        const tgtId = link.target.id || link.target;
+        nodeDegrees[srcId] = (nodeDegrees[srcId] || 0) + 1;
+        nodeDegrees[tgtId] = (nodeDegrees[tgtId] || 0) + 1;
+      });
+
+      data.nodes.forEach(node => {
+        node.val = (nodeDegrees[node.id] || 0) + 1;
+      });
+
+      if (!graphInstance) {
         graphData = data;
-        
-        // Calculate node degrees for sizing
-        const nodeDegrees = {};
-        data.links.forEach(link => {
-          nodeDegrees[link.source] = (nodeDegrees[link.source] || 0) + 1;
-          nodeDegrees[link.target] = (nodeDegrees[link.target] || 0) + 1;
-        });
-
-        data.nodes.forEach(node => {
-          node.val = (nodeDegrees[node.id] || 0) + 1;
-        });
-
         graphInstance = ForceGraph()(document.getElementById('graph'))
           .graphData(data)
           .nodeId('id')
@@ -368,11 +425,80 @@
           ctx.fillStyle = isSelected ? '#ffffff' : 'rgba(255, 255, 255, 0.8)';
           ctx.fillText(label, node.x, node.y + r + fontSize);
         });
+      } else {
+        // Keep selected node focused if it still exists in the new graph
+        if (selectedNode) {
+          const updatedNode = data.nodes.find(n => n.id === selectedNode.id);
+          if (updatedNode) {
+            // Re-bind coordinate states to prevent physics snaps
+            const oldNode = graphData.nodes.find(n => n.id === selectedNode.id);
+            if (oldNode) {
+              updatedNode.x = oldNode.x;
+              updatedNode.y = oldNode.y;
+              updatedNode.vx = oldNode.vx;
+              updatedNode.vy = oldNode.vy;
+            }
+            selectedNode = updatedNode;
+            openSidebar(selectedNode);
+          } else {
+            selectedNode = null;
+            closeSidebar();
+          }
+        }
+        
+        // Merge coordinate states of existing nodes to keep the physics stable
+        data.nodes.forEach(newNode => {
+          const existingNode = graphData.nodes.find(n => n.id === newNode.id);
+          if (existingNode) {
+            newNode.x = existingNode.x;
+            newNode.y = existingNode.y;
+            newNode.vx = existingNode.vx;
+            newNode.vy = existingNode.vy;
+          }
+        });
 
+        graphData = data;
+        graphInstance.graphData(data);
+      }
+    }
+
+    function checkForUpdates() {
+      fetch('graph.json', { cache: 'no-store' })
+        .then(res => {
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          return res.text();
+        })
+        .then(text => {
+          if (lastJsonStr && lastJsonStr !== text) {
+            try {
+              const data = JSON.parse(text);
+              initOrUpdateGraph(data);
+              showToast('Graph updated live!');
+            } catch (e) {
+              console.error('Error parsing updated graph.json', e);
+            }
+          }
+          lastJsonStr = text;
+        })
+        .catch(err => {
+          console.debug('Polling check skipped:', err.message);
+        });
+    }
+
+    // Initial Load
+    fetch('graph.json')
+      .then(res => res.json())
+      .then(data => {
+        initOrUpdateGraph(data);
+        lastJsonStr = JSON.stringify(data);
+        // Start polling every 1.5 seconds for instant updates
+        setInterval(checkForUpdates, 1500);
       })
       .catch(err => {
         document.getElementById('loader').innerText = 'Failed to load graph.json. Ensure it exists and served via HTTP.';
         console.error(err);
+        // Try starting polling loop anyway
+        setInterval(checkForUpdates, 3000);
       });
 
     function focusNode(node) {
@@ -421,8 +547,14 @@
       const relContainer = document.getElementById('side-relations');
       relContainer.innerHTML = '';
       
-      const outgoing = graphData.links.filter(l => (l.source.id || l.source) === node.id);
-      const incoming = graphData.links.filter(l => (l.target.id || l.target) === node.id);
+      const outgoing = graphData.links.filter(l => {
+        const srcId = l.source.id || l.source;
+        return srcId === node.id;
+      });
+      const incoming = graphData.links.filter(l => {
+        const tgtId = l.target.id || l.target;
+        return tgtId === node.id;
+      });
 
       let foundRels = false;
 

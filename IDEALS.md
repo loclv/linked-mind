@@ -4,7 +4,7 @@ This document outlines the strategic roadmap for the next evolution of Linked-Mi
 Currently, the system requires manual rescans. The "ideal" state is a "Living Graph" that breathes with your notes.
 
 - [x] Native File Watcher: Implement a cross-platform background daemon in Zig (implemented as `li watch` polling loop).
-- [ ] Live UI Rehydration: Automatically push updates to the `graph.json` and trigger a refresh in the Web Visualizer when files change.
+- [x] Live UI Rehydration: Automatically push updates to the `graph.json` and trigger a refresh in the Web Visualizer when files change.
 - [ ] Hot-Reloading LLM Context: A persistent API server that always provides the most up-to-date `llm_knowledge.md` via an HTTP endpoint.
 ## 2. 🧠 Advanced Graph Intelligence
 Moving beyond simple connectivity to understanding the shape and importance of knowledge.
