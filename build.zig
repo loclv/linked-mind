@@ -107,6 +107,16 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(li_exe);
 
+    const map_exe = b.addExecutable(.{
+        .name = "map-builder",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/map.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    b.installArtifact(map_exe);
+
     const run_step = b.step("run", "Run the app");
 
     // This creates a RunArtifact step in the build graph. A RunArtifact step

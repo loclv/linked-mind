@@ -1,0 +1,22 @@
+[
+  {
+    "name": "architecture",
+    "description": "🏗 Architecture & Design",
+    "path": "ARCHITECTURE.md"
+  },
+  {
+    "name": "llm-strategy",
+    "description": "🧠 Boosting LLM Intelligence with Linked-Mind",
+    "path": "LLM_STRATEGY.md"
+  },
+  {
+    "name": "llm-wiki",
+    "description": "Source: https://gist.githubusercontent.com/karpathy/442a6bf555914893e9891c11519de94f/raw",
+    "path": "llm_wiki.md"
+  },
+  {
+    "name": "map",
+    "description": "`map.csv` - CSV Data Format for mapping knowledge base",
+    "path": "map.md"
+  }
+]
