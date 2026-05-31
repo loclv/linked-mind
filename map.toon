@@ -1,16 +1,184 @@
-[5]:
-  - name: architecture
-    description: 🏗 Architecture & Design
-    path: ARCHITECTURE.md
-  - name: llm-strategy
-    description: 🧠 Boosting LLM Intelligence with Linked-Mind
-    path: LLM_STRATEGY.md
-  - name: Map Index
-    description: "The Documentation Index Map System (compiled as the map-builder executable target) scans the docs directory in your workspace, extracts metadata from each file (frontmatter for Markdown, comments and filenames for Zig), and rebuilds the structured index map representing your knowledge base."
-    path: MAP_INDEX.md
-  - name: llm-wiki
-    description: "Source: https://gist.githubusercontent.com/karpathy/442a6bf555914893e9891c11519de94f/raw"
-    path: llm_wiki.md
-  - name: map
-    description: `map.csv` - CSV Data Format for mapping knowledge base
-    path: map.md
+[22]:
+  - name: agents
+    description: AGENTS.md
+    path: AGENTS.md
+  - name: changelog
+    description: CHANGELOG
+    path: CHANGELOG.md
+  - name: ideals
+    description: "🌟 Linked-Mind Phase 2: The \"Ideal\" Future"
+    path: IDEALS.md
+  - name: moc
+    description: Map of Content (MOC)
+    path: MOC.md
+  - name: readme
+    description: 🥦 Linked-Mind
+    path: README.md
+  - name: tasks
+    description: 📝 Linked-Mind Task Manager
+    path: TASKS.md
+  - description: Assets
+    path: assets/
+    children[1]:
+      - name: broccoli-kun
+        description: ""
+        path: assets/broccoli_kun.png
+  - name: build
+    description: "Zig code sample: build."
+    path: build.zig
+  - name: build-zig
+    description: ""
+    path: build.zig.zon
+  - description: Docs
+    path: docs/
+    children[5]:
+      - name: architecture
+        description: 🏗 Architecture & Design
+        path: docs/ARCHITECTURE.md
+      - name: map
+        description: `map.csv` - CSV Data Format for mapping knowledge base
+        path: docs/map.md
+      - name: llm-strategy
+        description: 🧠 Boosting LLM Intelligence with Linked-Mind
+        path: docs/LLM_STRATEGY.md
+      - name: Map Index
+        description: "The Documentation Index Map System (compiled as the map-builder executable target) scans the docs directory in your workspace, extracts metadata from each file (frontmatter for Markdown, comments and filenames for Zig), and rebuilds the structured index map representing your knowledge base."
+        path: docs/MAP_INDEX.md
+      - name: llm-wiki
+        description: "Source: https://gist.githubusercontent.com/karpathy/442a6bf555914893e9891c11519de94f/raw"
+        path: docs/llm_wiki.md
+  - name: index
+    description: ""
+    path: index.html
+  - name: llm-knowledge
+    description: LLM Knowledge Bundle
+    path: llm_knowledge.md
+  - description: Md Editor
+    path: md-editor/
+    children: []
+  - description: Mocks
+    path: mocks/
+    children[1]:
+      - description: Raw
+        path: mocks/raw/
+        children[4]:
+          - name: openai-chatgpt-inputs
+            description: How to Format Inputs to ChatGPT Models
+            path: mocks/raw/openai-chatgpt-inputs.md
+          - name: anthropic-prompt-caching
+            description: Prompt Caching with the Claude API
+            path: mocks/raw/anthropic-prompt-caching.md
+          - name: ollama-api
+            description: Ollama API
+            path: mocks/raw/ollama-api.md
+          - name: huggingface-text-generation
+            description: Text Generation with Transformers
+            path: mocks/raw/huggingface-text-generation.md
+  - description: No Ws
+    path: no_ws/
+    children: []
+  - description: Sample Kb
+    path: sample_kb/
+    children[5]:
+      - name: first
+        description: This is the first note about Zig and knowledge bases. Zig is fast.
+        path: sample_kb/first.md
+      - name: third
+        description: "This is the third node #advanced [[first.md]] [[meta_test.md]]"
+        path: sample_kb/third.md
+      - name: typed-test
+        description: Typed Test
+        path: sample_kb/typed_test.md
+      - name: second
+        description: This is the second note about knowledge base systems. Knowledge is power.
+        path: sample_kb/second.md
+      - name: meta-test
+        description: Metadata Test
+        path: sample_kb/meta_test.md
+  - name: TOON Specification
+    description: "TOON is a token-efficient text format for JSON-shaped data, designed primarily for LLM prompts and contexts where every token costs. It saves tokens vs JSON by declaring array shapes once (length and optional field list) and using indentation in place of braces. TOON is typically used as a translation layer: produce data as JSON in code, encode to TOON for downstream consumption, and decode back to JSON if needed."
+    path: spec.md
+  - description: Src
+    path: src/
+    children[9]:
+      - name: map
+        description: "! Scans the `docs/` directory, extracts metadata from each file"
+        path: src/map.zig
+      - name: cache
+        description: "Zig code sample: cache."
+        path: src/cache.zig
+      - name: main
+        description: "Zig code sample: main."
+        path: src/main.zig
+      - name: parser
+        description: ! Markdown parser for knowledge graph nodes.
+        path: src/parser.zig
+      - name: li
+        description: "Zig code sample: li."
+        path: src/li.zig
+      - name: root
+        description: "! By convention, root.zig is the root source file when making a library."
+        path: src/root.zig
+      - name: graph
+        description: "Zig code sample: graph."
+        path: src/graph.zig
+      - description: Utils
+        path: src/utils/
+        children[1]:
+          - name: toon
+            description: "Zig code sample: toon."
+            path: src/utils/toon.zig
+      - description: Map
+        path: src/map/
+        children[5]:
+          - name: metadata
+            description: "Zig code sample: metadata."
+            path: src/map/metadata.zig
+          - name: utils
+            description: "Zig code sample: utils."
+            path: src/map/utils.zig
+          - name: scanner
+            description: "Zig code sample: scanner."
+            path: src/map/scanner.zig
+          - name: gitignore
+            description: "Zig code sample: gitignore."
+            path: src/map/gitignore.zig
+          - name: entry
+            description: "Zig code sample: entry."
+            path: src/map/entry.zig
+  - description: Test Gc Kb
+    path: test_gc_kb/
+    children[5]:
+      - name: island1
+        description: island1
+        path: test_gc_kb/island1.md
+      - name: node2
+        description: node2
+        path: test_gc_kb/node2.md
+      - name: orphan1
+        description: orphan1
+        path: test_gc_kb/orphan1.md
+      - name: node1
+        description: node1
+        path: test_gc_kb/node1.md
+      - name: island2
+        description: island2
+        path: test_gc_kb/island2.md
+  - name: test-json
+    description: "Zig code sample: test-json."
+    path: test_json.zig
+  - description: Test Kb
+    path: test_kb/
+    children[3]:
+      - name: file1
+        description: "[[File2]]"
+        path: test_kb/File1.md
+      - name: file3
+        description: "[[File1]]"
+        path: test_kb/File3.md
+      - name: file2
+        description: "[[File3]]"
+        path: test_kb/File2.md
+  - description: Test Ws
+    path: test_ws/
+    children: []

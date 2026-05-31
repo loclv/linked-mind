@@ -2,13 +2,21 @@ const std = @import("std");
 const entry_mod = @import("entry.zig");
 const metadata_mod = @import("metadata.zig");
 const utils = @import("utils.zig");
+const gitignore_mod = @import("gitignore.zig");
 
 const Entry = entry_mod.Entry;
 const Metadata = metadata_mod.Metadata;
+const Gitignore = gitignore_mod.Gitignore;
 
 /// Recursively walks a directory under `base/rel`, building `Entry` structs
 /// for every file and subdirectory.  Returns an ArrayList of sibling entries.
 pub fn scanDir(alloc: std.mem.Allocator, io: std.Io, base: []const u8, rel: []const u8) !std.ArrayList(Entry) {
+    var gitignore = try Gitignore.init(alloc, io, base);
+    defer gitignore.deinit(alloc);
+    return scanDirInternal(alloc, io, base, rel, &gitignore);
+}
+
+fn scanDirInternal(alloc: std.mem.Allocator, io: std.Io, base: []const u8, rel: []const u8, gitignore: *const Gitignore) !std.ArrayList(Entry) {
     const full_path = if (rel.len == 0) base else try std.fs.path.join(alloc, &.{ base, rel });
     defer if (rel.len > 0) alloc.free(full_path);
 
@@ -48,6 +56,7 @@ pub fn scanDir(alloc: std.mem.Allocator, io: std.Io, base: []const u8, rel: []co
     var it = dir.iterate();
     while (try it.next(io)) |entry| {
         if (std.mem.startsWith(u8, entry.name, ".")) continue;
+        if (try gitignore.isIgnored(alloc, base, rel, entry.name, entry.kind == .directory)) continue;
         if (entry.kind == .file) {
             if (std.mem.endsWith(u8, entry.name, ".toon") or
                 std.mem.endsWith(u8, entry.name, ".json") or
@@ -68,7 +77,7 @@ pub fn scanDir(alloc: std.mem.Allocator, io: std.Io, base: []const u8, rel: []co
         } else if (entry.kind == .directory) {
             const child_rel = if (rel.len == 0) entry.name else try std.fs.path.join(alloc, &.{ rel, entry.name });
             defer if (rel.len > 0) alloc.free(child_rel);
-            const entries = try scanDir(alloc, io, base, child_rel);
+            const entries = try scanDirInternal(alloc, io, base, child_rel, gitignore);
             try subdirs.append(alloc, .{ .name = try alloc.dupe(u8, entry.name), .entries = entries });
         }
     }

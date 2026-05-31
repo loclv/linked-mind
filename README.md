@@ -97,7 +97,7 @@ li export --tag research --status completed
   ```bash
   li watch
   ```
-- Documentation Indexing Map: Run the map-builder executable to scan your documentation and regenerate the map index.
+- Documentation Indexing Map: Run the map-builder executable to scan your documentation and regenerate the map index. It automatically ignores the .git directory and respects any patterns defined in the .gitignore file when scanning.
   ```bash
   # Generates map.toon from default "docs" folder
   map-builder

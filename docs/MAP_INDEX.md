@@ -72,6 +72,13 @@ The map-builder target binary can be executed directly to scan a target director
 
 To optimize disk performance and keep console outputs clean, map-builder compares newly scanned and built indexes with the existing files. The index file is only written to disk and an update message printed when actual changes in the contents or entry list have occurred. Otherwise, it runs silently.
 
+### Auto Ignore & Gitignore Support
+
+To ensure that internal build artifacts, system files, caches, and VCS directories are kept out of generated index maps, map-builder features a high-performance built-in ignore engine:
+
+- Recursive .git Exclusion: The scanning walker natively ignores any .git directories encountered at any depth.
+- Standard .gitignore Matching: Before starting a directory walk, map-builder parses the .gitignore file present in the scanned directory (or the root workspace). It automatically applies standard matching rules, including trailing slash directory matches, glob wildcards, and anchored root paths, to skip matching files and folders.
+
 ### Basic Usage
 
 Generate map.toon from the default docs directory:

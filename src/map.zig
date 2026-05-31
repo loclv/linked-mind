@@ -9,6 +9,7 @@ pub const metadata = @import("map/metadata.zig");
 pub const entry = @import("map/entry.zig");
 pub const scanner = @import("map/scanner.zig");
 pub const toon = @import("utils/toon.zig");
+pub const gitignore = @import("map/gitignore.zig");
 
 
 pub fn main(init: std.process.Init) !void {
