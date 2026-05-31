@@ -4,6 +4,8 @@
 
 ### Added
 
+- Fully configurable command-line interface in the map-builder executable target, exposing `-d`/`--dir` options for custom target folders and `-o`/`--output` options for custom map file destinations, defaulting to "docs" and standard format.
+- Comprehensive integration testing suite in `src/map.zig` to verify scanning of custom target folders.
 - Support for TOON format (Token-Oriented Object Notation) as the new default output format (map.toon) for documentation mapping, reducing token usage for Large Language Models by 30% to 60%.
 - Custom high-performance recursive TOON serialization and string escaping engine for the Entry index tree.
 - Command-line argument parser in the map-builder executable target supporting --json, -j, and --format json options to output in standard JSON.

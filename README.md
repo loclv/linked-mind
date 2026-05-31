@@ -99,11 +99,17 @@ li export --tag research --status completed
   ```
 - Documentation Indexing Map: Run the map-builder executable to scan your documentation and regenerate the map index.
   ```bash
-  # Generates map.toon (default TOON format)
+  # Generates map.toon from default "docs" folder
   map-builder
 
-  # Generates map.json (optional JSON format)
+  # Generates map.json from default "docs" folder
   map-builder --json
+
+  # Generates map.toon from a custom target folder (e.g. "my_notes")
+  map-builder my_notes
+
+  # Generates map.toon from custom target folder and writes to custom output path
+  map-builder my_notes --output custom_map.toon
   ```
 ## 🧠 Why Graph-based KB for LLMs?
 Standard RAG (Retrieval-Augmented Generation) often treats files as isolated chunks. However, human knowledge is a web. By using Linked-Mind, you provide the LLM with:

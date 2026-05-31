@@ -68,15 +68,17 @@ Example of map.json index structure:
 
 ## CLI Target map-builder Usage
 
-The map-builder target binary can be executed directly to regenerate the index files.
+The map-builder target binary can be executed directly to scan a target directory and generate index files.
 
-Generate map.toon (Default):
+### Basic Usage
+
+Generate map.toon from the default `docs` directory:
 
 ```bash
 zig-out/bin/map-builder
 ```
 
-Generate map.json (JSON option):
+Generate map.json (JSON option) from the default `docs` directory:
 You can explicitly request the JSON format by passing --json, -j, or --format json:
 
 ```bash
@@ -86,6 +88,26 @@ zig-out/bin/map-builder -j
 # or
 zig-out/bin/map-builder --format json
 ```
+
+### Advanced Usage
+
+You can customize the target folder to scan as a positional argument or via `-d`/`--dir` options. You can also specify a custom output destination using `-o`/`--output`.
+
+```bash
+# Scan a custom folder named "my_kb" and output to "map.toon" in cwd
+zig-out/bin/map-builder my_kb
+
+# Scan a custom folder named "my_kb" using the explicit --dir flag
+zig-out/bin/map-builder --dir my_kb
+
+# Scan "my_kb" and output in JSON format
+zig-out/bin/map-builder my_kb --json
+
+# Scan "my_kb" and save the generated index to a custom location
+zig-out/bin/map-builder my_kb --output build/custom_map.toon
+```
+
+Use `zig-out/bin/map-builder --help` or `-h` to view the comprehensive help and usage details.
 
 ## Background Watch Daemon Integration
 
