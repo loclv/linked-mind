@@ -83,7 +83,7 @@ pub fn scanDir(alloc: std.mem.Allocator, io: std.Io, base: []const u8, rel: []co
             try std.fs.path.join(alloc, &.{ rel, f.name });
         errdefer alloc.free(path);
 
-        try result.append(alloc, Entry{
+        try result.append(alloc, .{
             .name = f.meta.name,
             .description = f.meta.description,
             .path = path,
@@ -99,7 +99,7 @@ pub fn scanDir(alloc: std.mem.Allocator, io: std.Io, base: []const u8, rel: []co
         const title = try utils.titleFromDirname(alloc, d.name);
         errdefer alloc.free(title);
 
-        try result.append(alloc, Entry{
+        try result.append(alloc, .{
             .description = title,
             .path = path,
             .children = d.entries,
