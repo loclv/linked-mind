@@ -6,6 +6,9 @@
         "editor.defaultFormatter": "patricio0312rev.vscode-toon-tools-patricio0312rev",
         "editor.formatOnSave": true
     },
+    "[zig]": {
+        "editor.defaultFormatter": "ziglang.vscode-zig"
+    },
     "makefile.configureOnOpen": false,
     "cSpell.words": [
         "deinit",

@@ -1,12 +1,32 @@
+//! Directory scanner for the map builder.
+//!
+//! This module provides `scanDir`, which recursively walks a directory tree
+//! rooted at `base` and produces a flat-first list of `Entry` values that
+//! describe every visible file and subdirectory.
+//!
+//! Filtering rules applied during the walk:
+//!   - Hidden entries (names starting with `.`) are always skipped.
+//!   - Entries matched by the project's `.gitignore` rules are skipped.
+//!   - Map output files (`.toon`, `.json`, `.csv`) are excluded so the
+//!     scanner does not index its own generated output.
+//!
+//! Public API:
+//!   `scanDir(alloc, io, base, rel)` - entry point; loads gitignore rules
+//!   from `base` and delegates to the internal recursive walk.
+//!
+//! Memory ownership:
+//!   The returned `ArrayList(Entry)` and all strings it contains are owned
+//!   by the caller.  Each `Entry` must be freed with `Entry.deinit(alloc)`
+//!   before the list itself is released with `list.deinit(alloc)`.
 const std = @import("std");
-const entry_mod = @import("entry.zig");
-const metadata_mod = @import("metadata.zig");
-const utils = @import("utils.zig");
-const gitignore_mod = @import("handle_gitignore.zig");
 
+const entry_mod = @import("entry.zig");
 const Entry = entry_mod.Entry;
-const Metadata = metadata_mod.Metadata;
+const gitignore_mod = @import("handle_gitignore.zig");
 const Gitignore = gitignore_mod.Gitignore;
+const metadata_mod = @import("metadata.zig");
+const Metadata = metadata_mod.Metadata;
+const utils = @import("utils.zig");
 
 /// Recursively walks a directory under `base/rel`, building `Entry` structs
 /// for every file and subdirectory.  Returns an ArrayList of sibling entries.
