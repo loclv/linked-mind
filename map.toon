@@ -24,7 +24,7 @@
         description: ""
         path: assets/broccoli_kun.png
   - name: build
-    description: "Zig code sample: build."
+    description: "Zig source: build."
     path: build.zig
   - name: build-zig
     description: ""
@@ -102,49 +102,49 @@
     path: src/
     children[9]:
       - name: map
-        description: "! Scans the `docs/` directory, extracts metadata from each file"
+        description: "Scans the `docs/` directory, extracts metadata from each file"
         path: src/map.zig
       - name: cache
-        description: "Zig code sample: cache."
+        description: File-level parse cache for the knowledge graph.
         path: src/cache.zig
       - name: main
-        description: "Zig code sample: main."
+        description: Legacy CLI entry point for the knowledge graph tool.
         path: src/main.zig
       - name: parser
-        description: ! Markdown parser for knowledge graph nodes.
+        description: Markdown parser for knowledge graph nodes.
         path: src/parser.zig
       - name: li
-        description: "Zig code sample: li."
+        description: Workspace-aware CLI for the Linked-Mind knowledge graph tool.
         path: src/li.zig
       - name: root
-        description: "! By convention, root.zig is the root source file when making a library."
+        description: Library root for Linked-Mind.
         path: src/root.zig
       - name: graph
-        description: "Zig code sample: graph."
+        description: In-memory knowledge graph built from parsed nodes.
         path: src/graph.zig
       - description: Utils
         path: src/utils/
         children[1]:
           - name: toon
-            description: "Zig code sample: toon."
+            description: TOON (Terse Object Notation) serialisation helpers.
             path: src/utils/toon.zig
       - description: Map
         path: src/map/
         children[5]:
           - name: metadata
-            description: "Zig code sample: metadata."
+            description: "Zig source: metadata."
             path: src/map/metadata.zig
           - name: handle-gitignore
-            description: "Zig code sample: handle-gitignore."
+            description: .gitignore rule loader and matcher for the directory scanner.
             path: src/map/handle_gitignore.zig
           - name: utils
-            description: "Zig code sample: utils."
+            description: String utility helpers for the map builder.
             path: src/map/utils.zig
           - name: scanner
-            description: "Zig code sample: scanner."
+            description: Directory scanner for the map builder.
             path: src/map/scanner.zig
           - name: entry
-            description: "Zig code sample: entry."
+            description: Entry type for the map index tree.
             path: src/map/entry.zig
   - description: Test Gc Kb
     path: test_gc_kb/
@@ -165,7 +165,7 @@
         description: island2
         path: test_gc_kb/island2.md
   - name: test-json
-    description: "Zig code sample: test-json."
+    description: "Zig source: test-json."
     path: test_json.zig
   - description: Test Kb
     path: test_kb/

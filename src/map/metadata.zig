@@ -75,10 +75,11 @@ pub fn extractZigDesc(content: []const u8) []const u8 {
         }
     }
 
-    // Fallback: first ordinary // comment.
+    // Fallback: first ordinary // comment (skip //! lines).
     var fb = std.mem.splitScalar(u8, content, '\n');
     while (fb.next()) |line| {
         const t = std.mem.trim(u8, line, " \r\t");
+        if (std.mem.startsWith(u8, t, "//!")) continue;
         if (std.mem.startsWith(u8, t, "//")) {
             return std.mem.trim(u8, t[2..], " \r\t");
         }
