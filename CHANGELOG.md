@@ -4,7 +4,12 @@
 
 ### Added
 
-- Modularized Documentation Index map building system (`map-builder` target) that recursively scans documentation files and generates a structured `map.json` index tree.
+- Support for TOON format (Token-Oriented Object Notation) as the new default output format (map.toon) for documentation mapping, reducing token usage for Large Language Models by 30% to 60%.
+- Custom high-performance recursive TOON serialization and string escaping engine for the Entry index tree.
+- Command-line argument parser in the map-builder executable target supporting --json, -j, and --format json options to output in standard JSON.
+- Dual-format real-time concurrent synchronization in the native watch daemon (li watch and li visualize), instantly updating both map.toon and map.json on any note changes.
+- Comprehensive unit tests covering leaf and group node TOON serialization in Entry.writeToon.
+- Modularized Documentation Index map building system (map-builder target) that recursively scans documentation files and generates a structured map.json index tree.
 - High-precision custom allocation-free streaming JSON serialization (`jsonStringify` method) for the documentation index tree.
 - Comprehensive unit tests covering YAML frontmatter extraction, comment parsing, kebab casing, and tree JSON serialization.
 - Unified Multi-Format Parser in `src/parser.zig` supporting Markdown (`.md`), Emacs Org-mode (`.org`), Plain Text (`.txt`), and PDF (`.pdf`) extraction.

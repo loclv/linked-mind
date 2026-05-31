@@ -45,6 +45,8 @@ Write comments explaining why the code exists, not just what it does. Document n
 
 After completing a task, always make sure to add necessary comments to the code and update the following project documents and folders to reflect the changes:
 
+- Run `rtk ziglint` to check for any lint errors.
+- Run `rtk zig build test` to check for any build errors.
 - `./CHANGELOG.md`: Record all changes, fixes, and new features introduced.
 - `./README.md`: Update usage information, features, or architectural details if they have changed.
 - `./docs/` folder: Add, update, or revise the documentation files in the `docs` directory to match the latest implementation.

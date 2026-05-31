@@ -3,6 +3,8 @@ const std = @import("std");
 const cache = @import("cache.zig");
 const graph = @import("graph.zig");
 const parser = @import("parser.zig");
+const map_scanner = @import("map/scanner.zig");
+const map_entry = @import("map/entry.zig");
 
 const usage =
     \\Usage: li <command> [options]
@@ -409,16 +411,13 @@ fn updateGraphAndExport(allocator: std.mem.Allocator, io: std.Io, ws_root: []con
     defer allocator.free(json_path);
     try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = json_path, .data = json });
 
-    // Also rebuild map.json for the docs directory under ws_root
+    // Also rebuild map.toon and map.json for the docs directory under ws_root
     const docs_path = try std.fs.path.join(allocator, &.{ ws_root, "docs" });
     defer allocator.free(docs_path);
 
     var docs_dir = std.Io.Dir.openDirAbsolute(io, docs_path, .{});
     if (docs_dir) |*d| {
         d.close(io);
-
-        const map_scanner = @import("map/scanner.zig");
-        const map_entry = @import("map/entry.zig");
 
         var entries = try map_scanner.scanDir(allocator, io, docs_path, "");
         defer {
@@ -428,20 +427,42 @@ fn updateGraphAndExport(allocator: std.mem.Allocator, io: std.Io, ws_root: []con
 
         std.mem.sort(map_entry.Entry, entries.items, {}, map_entry.entryLessThan);
 
-        var json_writer = std.Io.Writer.Allocating.init(allocator);
-        defer json_writer.deinit();
+        // 1. Rebuild map.toon (default format)
+        {
+            var toon_writer = std.Io.Writer.Allocating.init(allocator);
+            defer toon_writer.deinit();
 
-        var stringify = std.json.Stringify{ .writer = &json_writer.writer, .options = .{ .whitespace = .indent_2 } };
-        try stringify.write(entries.items);
-        try json_writer.writer.writeByte('\n');
+            try toon_writer.writer.print("[{d}]:\n", .{entries.items.len});
+            for (entries.items) |e| {
+                try e.writeToon(&toon_writer.writer, 4, true);
+            }
 
-        const out = try json_writer.toOwnedSlice();
-        defer allocator.free(out);
+            const out_toon = try toon_writer.toOwnedSlice();
+            defer allocator.free(out_toon);
 
-        const map_json_path = try std.fs.path.join(allocator, &.{ ws_root, "map.json" });
-        defer allocator.free(map_json_path);
+            const map_toon_path = try std.fs.path.join(allocator, &.{ ws_root, "map.toon" });
+            defer allocator.free(map_toon_path);
 
-        try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = map_json_path, .data = out });
+            try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = map_toon_path, .data = out_toon });
+        }
+
+        // 2. Rebuild map.json (JSON format)
+        {
+            var json_writer = std.Io.Writer.Allocating.init(allocator);
+            defer json_writer.deinit();
+
+            var stringify: std.json.Stringify = .{ .writer = &json_writer.writer, .options = .{ .whitespace = .indent_2 } };
+            try stringify.write(entries.items);
+            try json_writer.writer.writeByte('\n');
+
+            const out_json = try json_writer.toOwnedSlice();
+            defer allocator.free(out_json);
+
+            const map_json_path = try std.fs.path.join(allocator, &.{ ws_root, "map.json" });
+            defer allocator.free(map_json_path);
+
+            try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = map_json_path, .data = out_json });
+        }
     } else |err| {
         if (err != error.FileNotFound) {
             return err;

@@ -16,6 +16,7 @@ Save tokens, read less, understand more.
 - Tag System: Supports `#hashtags` (and Org `#+filetags:` or heading `:tags:`) to categorize knowledge nodes.
 - Link Resolution: Automatically maps human-readable wikilinks to absolute file paths, ignoring extensions.
 - Incremental Scanning: Blazing fast re-scans using `cache.json`, `mtime`, and SHA-256 (only parses changed files).
+- Documentation Index Map: Recursively scans documentation files to generate a structured map of the workspace, defaulting to TOON format (map.toon) for extreme token efficiency with optional JSON output (map.json).
 - Web Visualizer: Export an interactive D3-powered Knowledge Graph dashboard to `graph.json` with live UI rehydration and physics-stabilized real-time updates.
 - Native File Watcher: Background daemon that monitors folder changes across all format extensions, outputs JSON events, and triggers instant incremental visualizer re-exports.
 - LLM Export: Generates a single, structured `llm_knowledge.md` file designed for transformer-based LLMs to consume.
@@ -74,6 +75,14 @@ li export --tag research --status completed
 - Real-Time File Watcher: Run the native background daemon to monitor note changes and automatically rebuild and export visualizer data.
   ```bash
   li watch
+  ```
+- Documentation Indexing Map: Run the map-builder executable to scan your documentation and regenerate the map index.
+  ```bash
+  # Generates map.toon (default TOON format)
+  map-builder
+
+  # Generates map.json (optional JSON format)
+  map-builder --json
   ```
 ## 🧠 Why Graph-based KB for LLMs?
 Standard RAG (Retrieval-Augmented Generation) often treats files as isolated chunks. However, human knowledge is a web. By using Linked-Mind, you provide the LLM with:
