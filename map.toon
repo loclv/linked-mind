@@ -134,15 +134,15 @@
           - name: metadata
             description: "Zig code sample: metadata."
             path: src/map/metadata.zig
+          - name: handle-gitignore
+            description: "Zig code sample: handle-gitignore."
+            path: src/map/handle_gitignore.zig
           - name: utils
             description: "Zig code sample: utils."
             path: src/map/utils.zig
           - name: scanner
             description: "Zig code sample: scanner."
             path: src/map/scanner.zig
-          - name: gitignore
-            description: "Zig code sample: gitignore."
-            path: src/map/gitignore.zig
           - name: entry
             description: "Zig code sample: entry."
             path: src/map/entry.zig
