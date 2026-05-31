@@ -8,6 +8,8 @@ pub const utils = @import("map/utils.zig");
 pub const metadata = @import("map/metadata.zig");
 pub const entry = @import("map/entry.zig");
 pub const scanner = @import("map/scanner.zig");
+pub const toon = @import("utils/toon.zig");
+
 
 pub fn main(init: std.process.Init) !void {
     const alloc = std.heap.page_allocator;

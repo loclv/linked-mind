@@ -2,6 +2,10 @@
     "[markdown]": {
         "editor.wordWrap": "on"
     },
+    "[toon]": {
+        "editor.defaultFormatter": "patricio0312rev.vscode-toon-tools-patricio0312rev",
+        "editor.formatOnSave": true
+    },
     "makefile.configureOnOpen": false,
     "cSpell.words": [
         "deinit",

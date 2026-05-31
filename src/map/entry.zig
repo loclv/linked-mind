@@ -1,5 +1,5 @@
 const std = @import("std");
-const utils = @import("utils.zig");
+const toon = @import("../utils/toon.zig");
 
 /// Represents one node in the `map.json` or `map.toon` tree.
 /// Leaf nodes have `name`, `description`, and `path`.
@@ -63,12 +63,12 @@ pub const Entry = struct {
                 try writeSpaces(writer, indent);
                 try writer.writeAll("description: ");
             }
-            try utils.writeToonString(writer, self.description orelse "", ',');
+            try toon.writeToonString(writer, self.description orelse "", ',');
             try writer.writeByte('\n');
 
             try writeSpaces(writer, indent);
             try writer.writeAll("path: ");
-            try utils.writeToonString(writer, self.path, ',');
+            try toon.writeToonString(writer, self.path, ',');
             try writer.writeByte('\n');
 
             try writeSpaces(writer, indent);
@@ -89,17 +89,17 @@ pub const Entry = struct {
                 try writeSpaces(writer, indent);
                 try writer.writeAll("name: ");
             }
-            try utils.writeToonString(writer, self.name orelse "", ',');
+            try toon.writeToonString(writer, self.name orelse "", ',');
             try writer.writeByte('\n');
 
             try writeSpaces(writer, indent);
             try writer.writeAll("description: ");
-            try utils.writeToonString(writer, self.description orelse "", ',');
+            try toon.writeToonString(writer, self.description orelse "", ',');
             try writer.writeByte('\n');
 
             try writeSpaces(writer, indent);
             try writer.writeAll("path: ");
-            try utils.writeToonString(writer, self.path, ',');
+            try toon.writeToonString(writer, self.path, ',');
             try writer.writeByte('\n');
         }
     }

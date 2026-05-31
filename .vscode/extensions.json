@@ -1,6 +1,7 @@
 {
     "recommendations": [
         "ziglang.vscode-zig",
-		"usernamehw.errorlens"
+        "usernamehw.errorlens",
+        "patricio0312rev.vscode-toon-tools-patricio0312rev"
     ]
 }
