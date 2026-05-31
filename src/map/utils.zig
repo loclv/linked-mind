@@ -1,3 +1,10 @@
+//! String utility helpers for the map builder.
+//!
+//! Pure, allocation-returning helpers used when constructing `Entry` names
+//! and paths from raw filesystem data:
+//!
+//!   `kebabFromFilename`  - strip extension, replace `_`/` ` with `-`, lowercase
+//!   `titleFromDirname`   - split on `-`/`_`, capitalise each word
 const std = @import("std");
 
 /// Converts a filename stem into kebab-case (e.g. `hello_world.zig` → `hello-world`).

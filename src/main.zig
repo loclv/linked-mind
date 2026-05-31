@@ -1,3 +1,13 @@
+//! Legacy CLI entry point for the knowledge graph tool.
+//!
+//! This file predates `li.zig` and exposes a simpler subcommand surface
+//! without workspace discovery.  It accepts a `kb_dir` argument on every
+//! call instead of resolving a `.li/` root automatically.
+//!
+//! Subcommands: scan, export, path, clusters, gc, similar, suggest, visualize.
+//!
+//! Prefer `li.zig` for new development; this file is retained for
+//! compatibility with existing scripts.
 const std = @import("std");
 
 const cache = @import("cache.zig");

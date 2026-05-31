@@ -1,3 +1,16 @@
+//! TOON (Terse Object Notation) serialisation helpers.
+//!
+//! TOON is a human-readable, minimal data format similar to JSON but with
+//! implicit quoting and whitespace-insensitive key-value pairs.
+//!
+//! This module provides two low-level primitives used when writing map output:
+//!
+//!   `isNumericLike`   - returns true when a string looks like a JSON number
+//!                       (integer, decimal, or scientific notation) so the
+//!                       serialiser knows to quote it and avoid type ambiguity.
+//!   `writeToonString` - writes a string to any `Writer`, quoting and escaping
+//!                       only when the value would be misread as a keyword,
+//!                       number, or structural character (`:`  `[`  `]`  …).
 const std = @import("std");
 
 /// Checks if a string is numeric-like, matching the TOON regex `/^-?\d+(?:\.\d+)?(?:e[+-]?\d+)?$/i`.

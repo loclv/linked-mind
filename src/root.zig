@@ -1,4 +1,9 @@
-//! By convention, root.zig is the root source file when making a library.
+//! Library root for Linked-Mind.
+//!
+//! Exposes the public API surface of the `linked-mind` library crate so that
+//! downstream consumers can import individual modules without depending on the
+//! CLI executables.  Currently re-exports `bufferedPrint`, a thin wrapper
+//! around a buffered stdout writer used by CLI subcommands.
 const std = @import("std");
 
 pub fn bufferedPrint() !void {

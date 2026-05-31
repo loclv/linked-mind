@@ -1,3 +1,16 @@
+//! .gitignore rule loader and matcher for the directory scanner.
+//!
+//! Reads the `.gitignore` file at `base/` (if present) and compiles each
+//! non-comment, non-empty line into a `GitignorePattern`.  The `Gitignore`
+//! struct is passed through the recursive scan so that every entry is tested
+//! against the rules before being included in the map index.
+//!
+//! Matching rules supported:
+//!   - Literal file / directory names
+//!   - Glob wildcards `*` and `**`
+//!   - Directory-only patterns ending in `/`
+//!   - Anchored patterns starting with `/`
+//!   - Negation patterns starting with `!` (planned; currently skipped)
 const std = @import("std");
 const log = std.log.scoped(.gitignore);
 

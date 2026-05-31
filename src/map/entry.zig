@@ -1,3 +1,14 @@
+//! Entry type for the map index tree.
+//!
+//! An `Entry` represents a single node in the hierarchical map output
+//! (`map.toon` or `map.json`).  Two kinds exist:
+//!
+//!   Leaf   - a file: has `name`, `description`, and `path` set; `children` is null.
+//!   Group  - a directory: has `description` (title), `path` (trailing `/`),
+//!            and `children`; `name` is null.
+//!
+//! Memory: all string fields and the `children` list are heap-owned.
+//! Call `Entry.deinit(alloc)` to release them recursively.
 const std = @import("std");
 const toon = @import("../utils/toon.zig");
 

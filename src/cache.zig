@@ -1,3 +1,13 @@
+//! File-level parse cache for the knowledge graph.
+//!
+//! Stores a `CacheEntry` per file path, keyed by the absolute path string.
+//! Each entry records the file's last-modified time, its SHA-256 content
+//! hash, and the fully-parsed `Node`.  On startup the cache is hydrated from
+//! a JSON file on disk; it is persisted again after every scan so that
+//! unchanged files do not need to be re-parsed.
+//!
+//! Memory: all keys and `Node` contents are heap-owned.  Call `Cache.deinit`
+//! to release everything before the process exits.
 const std = @import("std");
 
 const parser = @import("parser.zig");

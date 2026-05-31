@@ -1,3 +1,14 @@
+//! In-memory knowledge graph built from parsed nodes.
+//!
+//! The `Graph` holds a `StringHashMap` of `Node` values keyed by file path.
+//! It supports:
+//!   - BFS shortest-path queries between any two nodes (`shortestPath`)
+//!   - Community detection for cluster analysis (`detectCommunities`)
+//!   - Orphan / island identification for graph hygiene (`findOrphans`)
+//!   - Cosine-similarity scoring for "similar nodes" and link suggestions
+//!
+//! All node ownership is transferred to the graph on `addNode`; call
+//! `Graph.deinit` to release everything.
 const std = @import("std");
 
 const parser = @import("parser.zig");

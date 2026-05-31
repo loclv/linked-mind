@@ -1,3 +1,19 @@
+//! Workspace-aware CLI for the Linked-Mind knowledge graph tool.
+//!
+//! `li` is the main executable entry point.  It discovers the nearest `.li/`
+//! workspace directory by walking up from the current working directory,
+//! then dispatches to subcommands:
+//!
+//!   init      Create a new `.li/` workspace
+//!   scan      Parse all files and persist the cache
+//!   export    Emit `llm_knowledge.md` for LLM consumption
+//!   path      BFS shortest path between two nodes
+//!   clusters  Community detection map
+//!   gc        Orphan / island node hygiene report
+//!   similar   Find content-similar nodes
+//!   suggest   Suggest missing wikilinks
+//!   visualize Export `graph.json` for web visualisation
+//!   watch     Stream file-change events as JSON
 const std = @import("std");
 
 const cache = @import("cache.zig");
