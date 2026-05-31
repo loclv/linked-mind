@@ -108,6 +108,16 @@ err_msg: ?[]const u8, // Use `err_msg` instead
 - `async/await` removed - use threads instead
 - Signal handler: `@enumFromInt(@intFromEnum(...))` for enum conversion
 
+## Zig 0.16 Breaking Changes & Porting Experience
+
+### std.Io.Writer.Allocating
+- `toArrayList()` does not exist in Zig 0.16. Use `toOwnedSlice()` and manually free the returned slice using the allocator.
+- To write trailing newlines, print/write them to the writer *before* calling `toOwnedSlice()`.
+
+### Custom JSON Serialization & std.json.Value
+- Avoid creating intermediate `std.json.Value` trees with custom `toJson()` methods, as they require complex manual allocations and `std.json.Value` itself has no `deinit(alloc)` helper.
+- Instead, implement the standard `jsonStringify(self: Self, jws: anytype) !void` method on your custom structs. This allows `std.json.Stringify` to write values directly to the output stream without temporary memory allocations, ensuring 100% leak-free and highly performant execution.
+
 ## Memory Management
 
 Free owned fields before deiniting containers:
