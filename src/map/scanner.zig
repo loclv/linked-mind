@@ -8,7 +8,7 @@ const Metadata = metadata_mod.Metadata;
 
 /// Recursively walks a directory under `base/rel`, building `Entry` structs
 /// for every file and subdirectory.  Returns an ArrayList of sibling entries.
-pub fn scanDir(io: std.Io, alloc: std.mem.Allocator, base: []const u8, rel: []const u8) !std.ArrayList(Entry) {
+pub fn scanDir(alloc: std.mem.Allocator, io: std.Io, base: []const u8, rel: []const u8) !std.ArrayList(Entry) {
     const full_path = if (rel.len == 0) base else try std.fs.path.join(alloc, &.{ base, rel });
     defer if (rel.len > 0) alloc.free(full_path);
 
@@ -54,7 +54,7 @@ pub fn scanDir(io: std.Io, alloc: std.mem.Allocator, base: []const u8, rel: []co
                 try std.fs.path.join(alloc, &.{ base, rel, entry.name });
             defer alloc.free(fpath);
 
-            const meta = try metadata_mod.fileMetadata(io, alloc, fpath, entry.name);
+            const meta = try metadata_mod.fileMetadata(alloc, io, fpath, entry.name);
             errdefer {
                 alloc.free(meta.name);
                 alloc.free(meta.description);
@@ -63,7 +63,7 @@ pub fn scanDir(io: std.Io, alloc: std.mem.Allocator, base: []const u8, rel: []co
         } else if (entry.kind == .directory) {
             const child_rel = if (rel.len == 0) entry.name else try std.fs.path.join(alloc, &.{ rel, entry.name });
             defer if (rel.len > 0) alloc.free(child_rel);
-            const entries = try scanDir(io, alloc, base, child_rel);
+            const entries = try scanDir(alloc, io, base, child_rel);
             try subdirs.append(alloc, .{ .name = try alloc.dupe(u8, entry.name), .entries = entries });
         }
     }

@@ -13,8 +13,8 @@ pub const Metadata = struct {
 };
 
 /// Reads an entire file into an allocator-owned buffer.
-pub fn readFileAlloc(io: std.Io, alloc: std.mem.Allocator, path: []const u8) ![]const u8 {
-    return try std.Io.Dir.cwd().readFileAlloc(io, path, alloc, .unlimited);
+pub fn readFileAlloc(alloc: std.mem.Allocator, io: std.Io, path: []const u8) ![]const u8 {
+    return std.Io.Dir.cwd().readFileAlloc(io, path, alloc, .unlimited);
 }
 
 /// Parses YAML frontmatter (`--- ... ---`) for `name:` and `description:`.
@@ -38,7 +38,7 @@ pub fn extractFrontmatter(alloc: std.mem.Allocator, content: []const u8) !?Metad
     }
 
     if (name == null or desc == null) return null;
-    return Metadata{
+    return .{
         .name = try alloc.dupe(u8, name.?),
         .description = try alloc.dupe(u8, desc.?),
     };
@@ -59,8 +59,8 @@ pub fn extractZigDesc(content: []const u8) []const u8 {
 
 /// For Markdown without frontmatter, extracts the first heading/paragraph text.
 pub fn extractMdDesc(content: []const u8) []const u8 {
-    const body_start = if (std.mem.indexOf(u8, content, "\n---")) |i|
-        if (std.mem.indexOf(u8, content[i + 4 ..], "\n")) |j| i + 4 + j + 1 else content.len
+    const body_start = if (std.mem.find(u8, content, "\n---")) |i|
+        if (std.mem.find(u8, content[i + 4 ..], "\n")) |j| i + 4 + j + 1 else content.len
     else
         0;
     const body = content[body_start..];
@@ -72,9 +72,61 @@ pub fn extractMdDesc(content: []const u8) []const u8 {
     return "";
 }
 
+pub fn extractOrgMetadata(alloc: std.mem.Allocator, content: []const u8, basename: []const u8) !Metadata {
+    var name: ?[]const u8 = null;
+    var desc: ?[]const u8 = null;
+
+    var lines = std.mem.splitScalar(u8, content, '\n');
+    while (lines.next()) |line| {
+        const trimmed = std.mem.trim(u8, line, " \r\t");
+        if (std.mem.startsWith(u8, trimmed, "#+")) {
+            if (std.mem.findScalar(u8, trimmed, ':')) |colon_idx| {
+                const key = std.mem.trim(u8, trimmed[2..colon_idx], " ");
+                const val = std.mem.trim(u8, trimmed[colon_idx + 1 ..], " ");
+                if (std.ascii.eqlIgnoreCase(key, "title")) {
+                    name = val;
+                } else if (std.ascii.eqlIgnoreCase(key, "description")) {
+                    desc = val;
+                }
+            }
+        }
+    }
+
+    const final_name = if (name) |n| try alloc.dupe(u8, n) else try utils.kebabFromFilename(alloc, basename);
+    errdefer alloc.free(final_name);
+
+    const final_desc = if (desc) |d| try alloc.dupe(u8, d) else blk: {
+        var lines_desc = std.mem.splitScalar(u8, content, '\n');
+        while (lines_desc.next()) |line| {
+            const trimmed = std.mem.trim(u8, line, " \r\t");
+            if (trimmed.len > 0 and !std.mem.startsWith(u8, trimmed, "#+")) {
+                const clean_line = std.mem.trim(u8, trimmed, "* \t");
+                break :blk try alloc.dupe(u8, clean_line);
+            }
+        }
+        break :blk try alloc.dupe(u8, "");
+    };
+
+    return .{ .name = final_name, .description = final_desc };
+}
+
+pub fn extractTxtMetadata(alloc: std.mem.Allocator, content: []const u8, basename: []const u8) !Metadata {
+    const name = try utils.kebabFromFilename(alloc, basename);
+    errdefer alloc.free(name);
+
+    var lines = std.mem.splitScalar(u8, content, '\n');
+    while (lines.next()) |line| {
+        const trimmed = std.mem.trim(u8, line, " \r\t");
+        if (trimmed.len > 0) {
+            return .{ .name = name, .description = try alloc.dupe(u8, trimmed) };
+        }
+    }
+    return .{ .name = name, .description = try alloc.dupe(u8, "") };
+}
+
 /// Reads a file and builds Metadata based on its extension and contents.
-pub fn fileMetadata(io: std.Io, alloc: std.mem.Allocator, full_path: []const u8, basename: []const u8) !Metadata {
-    const content = try readFileAlloc(io, alloc, full_path);
+pub fn fileMetadata(alloc: std.mem.Allocator, io: std.Io, full_path: []const u8, basename: []const u8) !Metadata {
+    const content = try readFileAlloc(alloc, io, full_path);
     defer alloc.free(content);
 
     if (std.mem.endsWith(u8, basename, ".md")) {
@@ -82,7 +134,22 @@ pub fn fileMetadata(io: std.Io, alloc: std.mem.Allocator, full_path: []const u8,
         const name = try utils.kebabFromFilename(alloc, basename);
         errdefer alloc.free(name);
         const desc = try alloc.dupe(u8, extractMdDesc(content));
-        return Metadata{ .name = name, .description = desc };
+        return .{ .name = name, .description = desc };
+    }
+
+    if (std.mem.endsWith(u8, basename, ".org")) {
+        return extractOrgMetadata(alloc, content, basename);
+    }
+
+    if (std.mem.endsWith(u8, basename, ".txt")) {
+        return extractTxtMetadata(alloc, content, basename);
+    }
+
+    if (std.mem.endsWith(u8, basename, ".pdf")) {
+        const name = try utils.kebabFromFilename(alloc, basename);
+        errdefer alloc.free(name);
+        const desc = try std.fmt.allocPrint(alloc, "PDF document: {s}.", .{name});
+        return .{ .name = name, .description = desc };
     }
 
     if (std.mem.endsWith(u8, basename, ".zig")) {
@@ -91,15 +158,15 @@ pub fn fileMetadata(io: std.Io, alloc: std.mem.Allocator, full_path: []const u8,
         const desc_raw = extractZigDesc(content);
         if (desc_raw.len > 0) {
             const desc = try alloc.dupe(u8, desc_raw);
-            return Metadata{ .name = name, .description = desc };
+            return .{ .name = name, .description = desc };
         }
         const desc = try std.fmt.allocPrint(alloc, "Zig code sample: {s}.", .{name});
-        return Metadata{ .name = name, .description = desc };
+        return .{ .name = name, .description = desc };
     }
 
     const name = try utils.kebabFromFilename(alloc, basename);
     errdefer alloc.free(name);
-    return Metadata{ .name = name, .description = "" };
+    return .{ .name = name, .description = "" };
 }
 
 test "extractFrontmatter: valid frontmatter" {
@@ -150,4 +217,35 @@ test "extractMdDesc: extracts first text paragraph" {
     ;
     const desc = extractMdDesc(content);
     try std.testing.expectEqualStrings("My Title", desc);
+}
+
+test "extractOrgMetadata: valid org titles and tags" {
+    const alloc = std.testing.allocator;
+    const content =
+        \\#+TITLE: My Org Note Title
+        \\#+DESCRIPTION: A wonderful org-mode description
+        \\#+FILETAGS: :work:project:
+        \\
+        \\* Introduction
+        \\Body text.
+    ;
+    const meta = try extractOrgMetadata(alloc, content, "MyFile.org");
+    defer meta.deinit(alloc);
+
+    try std.testing.expectEqualStrings("My Org Note Title", meta.name);
+    try std.testing.expectEqualStrings("A wonderful org-mode description", meta.description);
+}
+
+test "extractTxtMetadata: extracts first non-empty line" {
+    const alloc = std.testing.allocator;
+    const content =
+        \\
+        \\First actual line of plain text.
+        \\Second line.
+    ;
+    const meta = try extractTxtMetadata(alloc, content, "simple.txt");
+    defer meta.deinit(alloc);
+
+    try std.testing.expectEqualStrings("simple", meta.name);
+    try std.testing.expectEqualStrings("First actual line of plain text.", meta.description);
 }

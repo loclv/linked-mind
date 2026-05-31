@@ -11,13 +11,13 @@ A reasoning-based, human-like retrieval RAG system over long documents (like [Ve
 
 Save tokens, read less, understand more.
 ## 🚀 Features
-- Fast Markdown Parsing: Written in Zig (v0.16.0) for maximum efficiency.
-- Wikilink Extraction: Automatically identifies `[[Internal Links]]` between documents.
-- Tag System: Supports `#hashtags` to categorize knowledge nodes.
-- Link Resolution: Automatically maps human-readable wikilinks to absolute file paths.
+- Multi-Format Parsing: Unified scanner supporting Markdown (`.md`), Emacs Org-mode (`.org`), Plain Text (`.txt`), and PDF (`.pdf`) extraction.
+- Wikilink Extraction: Automatically identifies `[[Internal Links]]` (including org-style `[[target][desc]]`) between documents across all supported formats.
+- Tag System: Supports `#hashtags` (and Org `#+filetags:` or heading `:tags:`) to categorize knowledge nodes.
+- Link Resolution: Automatically maps human-readable wikilinks to absolute file paths, ignoring extensions.
 - Incremental Scanning: Blazing fast re-scans using `cache.json`, `mtime`, and SHA-256 (only parses changed files).
 - Web Visualizer: Export an interactive D3-powered Knowledge Graph dashboard to `graph.json` with live UI rehydration and physics-stabilized real-time updates.
-- Native File Watcher: Background daemon that monitors folder changes, outputs JSON events, and triggers instant incremental visualizer re-exports.
+- Native File Watcher: Background daemon that monitors folder changes across all format extensions, outputs JSON events, and triggers instant incremental visualizer re-exports.
 - LLM Export: Generates a single, structured `llm_knowledge.md` file designed for transformer-based LLMs to consume.
 ## 🛠 Usage
 ### Prerequisites
@@ -80,7 +80,7 @@ Standard RAG (Retrieval-Augmented Generation) often treats files as isolated chu
 1. Contextual Proximity: If Node A links to Node B, the LLM knows they are related even if they don't share keywords.
 2. Structural Understanding: The AI sees the hierarchy and tags, allowing it to "browse" your brain more effectively.
 ## 📂 Project Structure
-- `src/parser.zig`: Optimized scanner for `[[links]]` and `#tags`.
+- `src/parser.zig`: Unified parser for multiple formats (.md, .org, .txt, .pdf) extracting `[[links]]` and `#tags`.
 - `src/graph.zig`: Adjacency-list based graph representation and link resolver.
 - `src/li.zig`: Workspace-aware CLI with `init`, `scan`, `export`, `path`, `clusters`, `gc`, `similar`, `suggest`, `visualize`.
 - `src/cache.zig`: Incremental scanning engine with `mtime` + SHA-256 cache.

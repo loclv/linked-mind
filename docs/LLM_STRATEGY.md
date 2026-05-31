@@ -9,7 +9,7 @@ Linked-Mind's `export` mode produces a bundle formatted specifically for these m
 ### 2. Implementation Flow
 To use Linked-Mind effectively for AI, follow this workflow:
 1. Tag Your Notes: Use `#topic` tags and YAML `status: active` in your Markdown files.
-2. Use Wikilinks: Connect your ideas with `[[Double Brackets]]` or typed `[[type::Target]]` links.
+2. Use Wikilinks: Connect your ideas with `[[Double Brackets]]` (supported across `.md`, `.org`, `.txt`, and `.pdf` files) or typed `[[type::Target]]` links.
 3. Preview with Scan: Use `scan --tag topic` to verify the context structure in your terminal before exporting.
 4. Run Linked-Mind Export: `zig build run -- export your_notes --tag filter`
 5. Feed the Bundle: Upload `llm_knowledge.md` to your AI.

@@ -176,6 +176,10 @@ pub const Parser = struct {
     ///
     /// 1MB limit prevents memory exhaustion from accidentally parsing binary files
     /// or extremely large documents. Most knowledge base notes are <100KB.
+    /// Parses a file from disk. Supports markdown (.md), org-mode (.org), text (.txt), and PDF (.pdf).
+    ///
+    /// 1MB limit prevents memory exhaustion from accidentally parsing binary files
+    /// or extremely large documents. Most knowledge base notes are <100KB.
     pub fn parseFile(self: *Parser, path: []const u8) !Node {
         const file = try std.Io.Dir.cwd().openFile(self.io, path, .{});
         defer file.close(self.io);
@@ -185,7 +189,402 @@ pub const Parser = struct {
         const content = try file_reader.interface.allocRemaining(self.allocator, .limited(1024 * 1024)); // max 1MB
         defer self.allocator.free(content);
 
-        return self.parseContent(path, content);
+        if (std.mem.endsWith(u8, path, ".pdf")) {
+            return self.parsePdfContent(path, content);
+        } else if (std.mem.endsWith(u8, path, ".org")) {
+            return self.parseOrgContent(path, content);
+        } else if (std.mem.endsWith(u8, path, ".txt")) {
+            return self.parseTxtContent(path, content);
+        } else {
+            return self.parseContent(path, content);
+        }
+    }
+
+    /// Decompresses zlib-compressed data (often found in PDF FlateDecode streams).
+    /// Uses standard library's flate decompressor with a zlib container format.
+    fn decompressZlib(self: *Parser, compressed_data: []const u8) ![]u8 {
+        var in_stream: std.Io.Reader = .fixed(compressed_data);
+        var window_buffer: [std.compress.flate.max_window_len]u8 = undefined;
+        var decompressor = std.compress.flate.Decompress.init(&in_stream, .zlib, &window_buffer);
+
+        var out: std.Io.Writer.Allocating = .init(self.allocator);
+        errdefer out.deinit();
+
+        var temp_buf: [4096]u8 = undefined;
+        while (true) {
+            const bytes_read = decompressor.reader.readSliceShort(&temp_buf) catch |err| {
+                std.log.err("Zlib decompression failed during read: {any}", .{err});
+                return err;
+            };
+            if (bytes_read == 0) break;
+            try out.writer.writeAll(temp_buf[0..bytes_read]);
+        }
+
+        return out.toOwnedSlice();
+    }
+
+    /// Parses Org-mode (.org) files, extracting metadata, filetags, heading tags, wikilinks, and #tags.
+    fn parseOrgContent(self: *Parser, path: []const u8, content: []const u8) !Node {
+        var node: Node = .{
+            .path = try self.allocator.dupe(u8, path),
+            .title = try self.allocator.dupe(u8, std.fs.path.basename(path)),
+            .id = try self.generateUuid(),
+            .content = try self.allocator.dupe(u8, content),
+            .links = .empty,
+            .backlinks = .empty,
+            .tags = .empty,
+            .metadata = std.StringHashMap([]const u8).init(self.allocator),
+        };
+        errdefer node.deinit(self.allocator);
+
+        // 1. Process line-by-line for org headers / properties / heading-level tags
+        var lines = std.mem.splitScalar(u8, content, '\n');
+        while (lines.next()) |line| {
+            const trimmed = std.mem.trim(u8, line, " \r\t");
+            if (trimmed.len == 0) continue;
+
+            if (std.mem.startsWith(u8, trimmed, "#+")) {
+                if (std.mem.findScalar(u8, trimmed, ':')) |colon_idx| {
+                    const key_raw = trimmed[2..colon_idx];
+                    const val_raw = trimmed[colon_idx + 1 ..];
+                    const key = std.mem.trim(u8, key_raw, " ");
+                    const val = std.mem.trim(u8, val_raw, " ");
+
+                    var lower_key = try self.allocator.alloc(u8, key.len);
+                    errdefer self.allocator.free(lower_key);
+                    for (key, 0..) |c, j| lower_key[j] = std.ascii.toLower(c);
+
+                    if (std.mem.eql(u8, lower_key, "title")) {
+                        self.allocator.free(node.title);
+                        node.title = try self.allocator.dupe(u8, val);
+                        self.allocator.free(lower_key);
+                    } else if (std.mem.eql(u8, lower_key, "filetags")) {
+                        var tags_it = std.mem.tokenizeScalar(u8, val, ':');
+                        while (tags_it.next()) |tag| {
+                            const trimmed_tag = std.mem.trim(u8, tag, " ");
+                            if (trimmed_tag.len > 0) {
+                                try node.tags.append(self.allocator, try self.allocator.dupe(u8, trimmed_tag));
+                            }
+                        }
+                        self.allocator.free(lower_key);
+                    } else {
+                        try node.metadata.put(lower_key, try self.allocator.dupe(u8, val));
+                    }
+                }
+            } else {
+                // Check if it's a heading like "* Heading Title :tag1:tag2:"
+                var star_count: usize = 0;
+                while (star_count < trimmed.len and trimmed[star_count] == '*') : (star_count += 1) {}
+                if (star_count > 0 and star_count < trimmed.len and trimmed[star_count] == ' ') {
+                    if (std.mem.endsWith(u8, trimmed, ":") and trimmed.len > star_count + 2) {
+                        if (std.mem.findScalarLast(u8, trimmed[0 .. trimmed.len - 1], ':')) |last_colon| {
+                            const tags_part = trimmed[last_colon .. trimmed.len];
+                            var tags_it = std.mem.tokenizeScalar(u8, tags_part, ':');
+                            while (tags_it.next()) |tag| {
+                                const trimmed_tag = std.mem.trim(u8, tag, " ");
+                                if (trimmed_tag.len > 0) {
+                                    try node.tags.append(self.allocator, try self.allocator.dupe(u8, trimmed_tag));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Scan content for org-style wikilinks and standard inline #tags
+        var i: usize = 0;
+        while (i < content.len) : (i += 1) {
+            if (i + 2 <= content.len and std.mem.eql(u8, content[i .. i + 2], "[[")) {
+                const start = i + 2;
+                var end = start;
+                while (end < content.len and !(end + 2 <= content.len and std.mem.eql(u8, content[end .. end + 2], "]]"))) : (end += 1) {}
+                if (end + 2 <= content.len and std.mem.eql(u8, content[end .. end + 2], "]]")) {
+                    var raw_link = content[start..end];
+                    if (std.mem.find(u8, raw_link, "][")) |desc_idx| {
+                        raw_link = raw_link[0..desc_idx];
+                    }
+
+                    var link_obj: Link = .{ .target = undefined, .nature = null };
+                    if (std.mem.find(u8, raw_link, "::")) |sep_idx| {
+                        link_obj.nature = try self.allocator.dupe(u8, std.mem.trim(u8, raw_link[0..sep_idx], " "));
+                        link_obj.target = try self.allocator.dupe(u8, std.mem.trim(u8, raw_link[sep_idx + 2 ..], " "));
+                    } else {
+                        link_obj.target = try self.allocator.dupe(u8, std.mem.trim(u8, raw_link, " "));
+                    }
+
+                    try node.links.append(self.allocator, link_obj);
+                    i = end + 1;
+                }
+            } else if (content[i] == '#') {
+                if (i + 1 < content.len and (content[i + 1] == '#' or content[i + 1] == ' ' or content[i + 1] == '+')) {
+                    continue;
+                }
+                const start = i + 1;
+                var end = start;
+                while (end < content.len and !std.ascii.isWhitespace(content[end]) and content[end] != '.' and content[end] != ',') : (end += 1) {}
+                if (end > start) {
+                    const tag = try self.allocator.dupe(u8, content[start..end]);
+                    try node.tags.append(self.allocator, tag);
+                    i = end;
+                }
+            }
+        }
+
+        return node;
+    }
+
+    /// Parses plain text (.txt) files, using the first non-empty line as title, and extracting wikilinks and tags.
+    fn parseTxtContent(self: *Parser, path: []const u8, content: []const u8) !Node {
+        var node: Node = .{
+            .path = try self.allocator.dupe(u8, path),
+            .title = try self.allocator.dupe(u8, std.fs.path.basename(path)),
+            .id = try self.generateUuid(),
+            .content = try self.allocator.dupe(u8, content),
+            .links = .empty,
+            .backlinks = .empty,
+            .tags = .empty,
+            .metadata = std.StringHashMap([]const u8).init(self.allocator),
+        };
+        errdefer node.deinit(self.allocator);
+
+        var lines = std.mem.splitScalar(u8, content, '\n');
+        var first_line: ?[]const u8 = null;
+        while (lines.next()) |line| {
+            const trimmed = std.mem.trim(u8, line, " \r\t");
+            if (trimmed.len > 0) {
+                first_line = trimmed;
+                break;
+            }
+        }
+
+        if (first_line) |fl| {
+            if (fl.len < 100 and std.mem.indexOf(u8, fl, "[[") == null) {
+                self.allocator.free(node.title);
+                node.title = try self.allocator.dupe(u8, fl);
+            }
+        }
+
+        var i: usize = 0;
+        while (i < content.len) : (i += 1) {
+            if (i + 2 <= content.len and std.mem.eql(u8, content[i .. i + 2], "[[")) {
+                const start = i + 2;
+                var end = start;
+                while (end < content.len and !(end + 2 <= content.len and std.mem.eql(u8, content[end .. end + 2], "]]"))) : (end += 1) {}
+                if (end + 2 <= content.len and std.mem.eql(u8, content[end .. end + 2], "]]")) {
+                    const raw_link = content[start..end];
+                    var link_obj: Link = .{ .target = undefined, .nature = null };
+                    if (std.mem.find(u8, raw_link, "::")) |sep_idx| {
+                        link_obj.nature = try self.allocator.dupe(u8, std.mem.trim(u8, raw_link[0..sep_idx], " "));
+                        link_obj.target = try self.allocator.dupe(u8, std.mem.trim(u8, raw_link[sep_idx + 2 ..], " "));
+                    } else {
+                        link_obj.target = try self.allocator.dupe(u8, std.mem.trim(u8, raw_link, " "));
+                    }
+
+                    try node.links.append(self.allocator, link_obj);
+                    i = end + 1;
+                }
+            } else if (content[i] == '#') {
+                if (i + 1 < content.len and (content[i + 1] == '#' or content[i + 1] == ' ')) {
+                    continue;
+                }
+                const start = i + 1;
+                var end = start;
+                while (end < content.len and !std.ascii.isWhitespace(content[end]) and content[end] != '.' and content[end] != ',') : (end += 1) {}
+                if (end > start) {
+                    const tag = try self.allocator.dupe(u8, content[start..end]);
+                    try node.tags.append(self.allocator, tag);
+                    i = end;
+                }
+            }
+        }
+
+        return node;
+    }
+
+    /// Extracts text from PDF streams (optionally decompressed), then scans for tags and wikilinks.
+    fn parsePdfContent(self: *Parser, path: []const u8, pdf_data: []const u8) !Node {
+        var node: Node = .{
+            .path = try self.allocator.dupe(u8, path),
+            .title = try self.allocator.dupe(u8, std.fs.path.basename(path)),
+            .id = try self.generateUuid(),
+            .content = try self.allocator.dupe(u8, ""),
+            .links = .empty,
+            .backlinks = .empty,
+            .tags = .empty,
+            .metadata = std.StringHashMap([]const u8).init(self.allocator),
+        };
+        errdefer node.deinit(self.allocator);
+
+        var text_builder: std.ArrayList(u8) = .empty;
+        defer text_builder.deinit(self.allocator);
+
+        var idx: usize = 0;
+        while (idx < pdf_data.len) {
+            const stream_pos = std.mem.indexOfPos(u8, pdf_data, idx, "stream") orelse break;
+            if (stream_pos + 6 < pdf_data.len and (pdf_data[stream_pos + 6] == '\n' or pdf_data[stream_pos + 6] == '\r')) {
+                const end_stream_pos = std.mem.indexOfPos(u8, pdf_data, stream_pos + 6, "endstream") orelse {
+                    idx = stream_pos + 6;
+                    continue;
+                };
+
+                var stream_start = stream_pos + 6;
+                if (stream_start < pdf_data.len and pdf_data[stream_start] == '\r') stream_start += 1;
+                if (stream_start < pdf_data.len and pdf_data[stream_start] == '\n') stream_start += 1;
+
+                const stream_len = if (end_stream_pos > stream_start) end_stream_pos - stream_start else 0;
+                const raw_stream = pdf_data[stream_start .. stream_start + stream_len];
+
+                // Search backwards for the object's dictionary boundaries to check for FlateDecode filter
+                var is_compressed = false;
+                var dict_start: ?usize = null;
+                var search_idx = stream_pos;
+                while (search_idx > 0) {
+                    search_idx -= 1;
+                    if (search_idx + 2 <= pdf_data.len and std.mem.eql(u8, pdf_data[search_idx .. search_idx + 2], "<<")) {
+                        dict_start = search_idx;
+                        break;
+                    }
+                }
+                if (dict_start) |ds| {
+                    const dict_str = pdf_data[ds..stream_pos];
+                    if (std.mem.indexOf(u8, dict_str, "/FlateDecode") != null) {
+                        is_compressed = true;
+                    }
+                }
+
+                var decompressed: ?[]u8 = null;
+                defer if (decompressed) |d| self.allocator.free(d);
+
+                var stream_bytes = raw_stream;
+                if (is_compressed) {
+                    if (self.decompressZlib(raw_stream)) |decomp| {
+                        decompressed = decomp;
+                        stream_bytes = decomp;
+                    } else |err| {
+                        std.log.warn("Failed to decompress PDF stream: {any}", .{err});
+                    }
+                }
+
+                // Extract any text sequences from parentheses '(' ... ')' inside the stream data
+                var s_i: usize = 0;
+                while (s_i < stream_bytes.len) {
+                    if (stream_bytes[s_i] == '(') {
+                        s_i += 1;
+                        const start_str = s_i;
+                        var parens_count: usize = 1;
+                        var escaped = false;
+                        while (s_i < stream_bytes.len) : (s_i += 1) {
+                            if (escaped) {
+                                escaped = false;
+                                continue;
+                            }
+                            if (stream_bytes[s_i] == '\\') {
+                                escaped = true;
+                                continue;
+                            }
+                            if (stream_bytes[s_i] == '(') {
+                                parens_count += 1;
+                            } else if (stream_bytes[s_i] == ')') {
+                                parens_count -= 1;
+                                if (parens_count == 0) {
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (parens_count == 0) {
+                            const raw_txt = stream_bytes[start_str..s_i];
+                            var unescaped = try self.allocator.alloc(u8, raw_txt.len);
+                            defer self.allocator.free(unescaped);
+                            var u_i: usize = 0;
+                            var r_i: usize = 0;
+                            while (r_i < raw_txt.len) {
+                                if (raw_txt[r_i] == '\\' and r_i + 1 < raw_txt.len) {
+                                    r_i += 1;
+                                    switch (raw_txt[r_i]) {
+                                        'n' => {
+                                            unescaped[u_i] = '\n';
+                                            u_i += 1;
+                                        },
+                                        'r' => {
+                                            unescaped[u_i] = '\r';
+                                            u_i += 1;
+                                        },
+                                        't' => {
+                                            unescaped[u_i] = '\t';
+                                            u_i += 1;
+                                        },
+                                        else => {
+                                            unescaped[u_i] = raw_txt[r_i];
+                                            u_i += 1;
+                                        },
+                                    }
+                                } else {
+                                    unescaped[u_i] = raw_txt[r_i];
+                                    u_i += 1;
+                                }
+                                r_i += 1;
+                            }
+
+                            if (u_i > 0) {
+                                if (text_builder.items.len > 0) {
+                                    try text_builder.append(self.allocator, ' ');
+                                }
+                                try text_builder.appendSlice(self.allocator, unescaped[0..u_i]);
+                            }
+                        }
+                    }
+                    s_i += 1;
+                }
+
+                idx = end_stream_pos + 9;
+            } else {
+                idx = stream_pos + 6;
+            }
+        }
+
+        self.allocator.free(node.content);
+        node.content = try text_builder.toOwnedSlice(self.allocator);
+
+        try node.metadata.put(try self.allocator.dupe(u8, "type"), try self.allocator.dupe(u8, "pdf"));
+
+        const content = node.content;
+        var i: usize = 0;
+        while (i < content.len) : (i += 1) {
+            if (i + 2 <= content.len and std.mem.eql(u8, content[i .. i + 2], "[[")) {
+                const start = i + 2;
+                var end = start;
+                while (end < content.len and !(end + 2 <= content.len and std.mem.eql(u8, content[end .. end + 2], "]]"))) : (end += 1) {}
+                if (end + 2 <= content.len and std.mem.eql(u8, content[end .. end + 2], "]]")) {
+                    const raw_link = content[start..end];
+                    var link_obj: Link = .{ .target = undefined, .nature = null };
+                    if (std.mem.find(u8, raw_link, "::")) |sep_idx| {
+                        link_obj.nature = try self.allocator.dupe(u8, std.mem.trim(u8, raw_link[0..sep_idx], " "));
+                        link_obj.target = try self.allocator.dupe(u8, std.mem.trim(u8, raw_link[sep_idx + 2 ..], " "));
+                    } else {
+                        link_obj.target = try self.allocator.dupe(u8, std.mem.trim(u8, raw_link, " "));
+                    }
+
+                    try node.links.append(self.allocator, link_obj);
+                    i = end + 1;
+                }
+            } else if (content[i] == '#') {
+                if (i + 1 < content.len and (content[i + 1] == '#' or content[i + 1] == ' ')) {
+                    continue;
+                }
+                const start = i + 1;
+                var end = start;
+                while (end < content.len and !std.ascii.isWhitespace(content[end]) and content[end] != '.' and content[end] != ',') : (end += 1) {}
+                if (end > start) {
+                    const tag = try self.allocator.dupe(u8, content[start..end]);
+                    try node.tags.append(self.allocator, tag);
+                    i = end;
+                }
+            }
+        }
+
+        return node;
     }
 
     /// Parses markdown content string into a Node.
@@ -700,4 +1099,82 @@ test "Parser: wikilink with trimmed whitespace" {
     try std.testing.expectEqualStrings("spaced target", node.links.items[0].target);
     try std.testing.expectEqualStrings("nature", node.links.items[1].nature.?);
     try std.testing.expectEqualStrings("target", node.links.items[1].target);
+}
+
+test "Parser: Org-mode format support" {
+    const allocator = std.testing.allocator;
+    var parser = Parser.init(allocator, getTestIo());
+
+    const content =
+        \\#+TITLE: Org Mode Test Note
+        \\#+AUTHOR: Jane Doe
+        \\#+STATUS: active
+        \\#+FILETAGS: :work:project:
+        \\
+        \\* Introduction :intro:
+        \\Hello world, this is an org file with [[wikilink]] and [[nature::target][org desc]].
+        \\We also support #inline-tag.
+    ;
+    var node = try parser.parseOrgContent("test.org", content);
+    defer node.deinit(allocator);
+
+    try std.testing.expectEqualStrings("Org Mode Test Note", node.title);
+    try std.testing.expectEqualStrings("Jane Doe", node.metadata.get("author").?);
+    try std.testing.expectEqualStrings("active", node.metadata.get("status").?);
+
+    // Tags: work, project, intro, inline-tag
+    try std.testing.expect(node.tags.items.len >= 4);
+    try std.testing.expectEqualStrings("work", node.tags.items[0]);
+    try std.testing.expectEqualStrings("project", node.tags.items[1]);
+    try std.testing.expectEqualStrings("intro", node.tags.items[2]);
+    try std.testing.expectEqualStrings("inline-tag", node.tags.items[3]);
+
+    // Links
+    try std.testing.expectEqual(@as(usize, 2), node.links.items.len);
+    try std.testing.expectEqualStrings("wikilink", node.links.items[0].target);
+    try std.testing.expectEqualStrings("target", node.links.items[1].target);
+    try std.testing.expectEqualStrings("nature", node.links.items[1].nature.?);
+}
+
+test "Parser: Plain Text format support" {
+    const allocator = std.testing.allocator;
+    var parser = Parser.init(allocator, getTestIo());
+
+    const content =
+        \\My Plain Text Title
+        \\
+        \\Some text content with [[wikilink]] and [[nature::target]].
+        \\Also have a #plain-tag.
+    ;
+    var node = try parser.parseTxtContent("test.txt", content);
+    defer node.deinit(allocator);
+
+    try std.testing.expectEqualStrings("My Plain Text Title", node.title);
+    try std.testing.expectEqual(@as(usize, 2), node.links.items.len);
+    try std.testing.expectEqualStrings("wikilink", node.links.items[0].target);
+    try std.testing.expectEqualStrings("target", node.links.items[1].target);
+    try std.testing.expectEqualStrings("nature", node.links.items[1].nature.?);
+    try std.testing.expectEqualStrings("plain-tag", node.tags.items[0]);
+}
+
+test "Parser: PDF format support (uncompressed stream)" {
+    const allocator = std.testing.allocator;
+    var parser = Parser.init(allocator, getTestIo());
+
+    const pdf_data =
+        \\%PDF-1.4
+        \\1 0 obj
+        \\<< /Length 60 >>
+        \\stream
+        \\(Hello [[pdf-link]] and #pdf-tag)
+        \\endstream
+        \\endobj
+    ;
+    var node = try parser.parsePdfContent("test.pdf", pdf_data);
+    defer node.deinit(allocator);
+
+    try std.testing.expectEqualStrings("Hello [[pdf-link]] and #pdf-tag", node.content);
+    try std.testing.expectEqual(@as(usize, 1), node.links.items.len);
+    try std.testing.expectEqualStrings("pdf-link", node.links.items[0].target);
+    try std.testing.expectEqualStrings("pdf-tag", node.tags.items[0]);
 }

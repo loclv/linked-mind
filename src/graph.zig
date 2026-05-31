@@ -176,6 +176,15 @@ pub const Graph = struct {
             if (std.mem.endsWith(u8, entry.value_ptr.title, ".md")) {
                 const no_ext = entry.value_ptr.title[0 .. entry.value_ptr.title.len - 3];
                 try title_map.put(no_ext, entry.value_ptr);
+            } else if (std.mem.endsWith(u8, entry.value_ptr.title, ".org")) {
+                const no_ext = entry.value_ptr.title[0 .. entry.value_ptr.title.len - 4];
+                try title_map.put(no_ext, entry.value_ptr);
+            } else if (std.mem.endsWith(u8, entry.value_ptr.title, ".txt")) {
+                const no_ext = entry.value_ptr.title[0 .. entry.value_ptr.title.len - 4];
+                try title_map.put(no_ext, entry.value_ptr);
+            } else if (std.mem.endsWith(u8, entry.value_ptr.title, ".pdf")) {
+                const no_ext = entry.value_ptr.title[0 .. entry.value_ptr.title.len - 4];
+                try title_map.put(no_ext, entry.value_ptr);
             }
         }
 

@@ -2,10 +2,11 @@
 Linked-Mind is built using Zig, prioritizing performance and low memory footprint while providing a robust Knowledge Graph structure.
 ## 🧱 Core Modules
 ### 1. `parser.zig`
-The Markdown parser doesn't just read the file; it tokenizes it specifically for knowledge-base metadata:
-- Wikilinks (`[[ ]]`): These are the primary edges of the graph. We extract them early to build the relationship schema.
-- Hashtags (`#tag`): These are categories or labels that help group nodes into clusters.
-- Memory Safety: Uses `std.ArrayListUnmanaged` to ensure we only allocate what's absolutely necessary when walking the filesystem.
+The Unified Multi-Format Parser tokenizes Markdown (`.md`), Emacs Org-mode (`.org`), Plain Text (`.txt`), and PDF (`.pdf`) files for knowledge-base metadata:
+- Wikilinks (`[[ ]]`): These are the primary edges of the graph. We extract them across all formats, including Org-style `[[target][description]]` links.
+- Hashtags (`#tag`): Extracted from raw text and specialized syntax (such as Org `#+filetags:` and heading-end `:tag1:tag2:` properties).
+- PDF Text Extraction: Scans PDF files for stream blocks, automatically decompressing `/FlateDecode` filters using Zig's `std.compress.flate.Decompress` (zlib format), then extracts parenthesized text `(...)` and parses it for links and tags.
+- Memory Safety: Uses `std.ArrayListUnmanaged` patterns to ensure minimal allocations when walking the filesystem and parsing documents.
 ### 2. `graph.zig`
 The heart of Linked-Mind is the Knowledge Graph:
 - Node Storage: Uses a `StringHashMap` where the key is the absolute file path and the value is a `Node` struct.

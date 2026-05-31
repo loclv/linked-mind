@@ -141,7 +141,11 @@ fn runCommand(allocator: std.mem.Allocator, io: std.Io, cmd: []const u8, ws_root
         // Skip .li and other hidden dirs
         if (std.mem.startsWith(u8, entry.path, ".li") or std.mem.startsWith(u8, entry.path, ".")) continue;
 
-        if (entry.kind == .file and std.mem.endsWith(u8, entry.basename, ".md")) {
+        const is_supported = std.mem.endsWith(u8, entry.basename, ".md") or
+            std.mem.endsWith(u8, entry.basename, ".org") or
+            std.mem.endsWith(u8, entry.basename, ".txt") or
+            std.mem.endsWith(u8, entry.basename, ".pdf");
+        if (entry.kind == .file and is_supported) {
             const absolute_path = try std.fs.path.join(allocator, &[_][]const u8{ ws_root, entry.path });
             defer allocator.free(absolute_path);
 
@@ -332,7 +336,11 @@ fn updateGraphAndExport(allocator: std.mem.Allocator, io: std.Io, ws_root: []con
         // Skip metadata storage (.li) and git/hidden folders to avoid noise and cycles.
         if (std.mem.startsWith(u8, entry.path, ".li") or std.mem.startsWith(u8, entry.path, ".")) continue;
 
-        if (entry.kind == .file and std.mem.endsWith(u8, entry.basename, ".md")) {
+        const is_supported = std.mem.endsWith(u8, entry.basename, ".md") or
+            std.mem.endsWith(u8, entry.basename, ".org") or
+            std.mem.endsWith(u8, entry.basename, ".txt") or
+            std.mem.endsWith(u8, entry.basename, ".pdf");
+        if (entry.kind == .file and is_supported) {
             const absolute_path = try std.fs.path.join(allocator, &[_][]const u8{ ws_root, entry.path });
             defer allocator.free(absolute_path);
 
@@ -423,7 +431,11 @@ fn watchWorkspace(allocator: std.mem.Allocator, io: std.Io, watch_path: []const 
         while (try walker.next(io)) |entry| {
             if (std.mem.startsWith(u8, entry.path, ".li") or std.mem.startsWith(u8, entry.path, ".")) continue;
 
-            if (entry.kind == .file and std.mem.endsWith(u8, entry.basename, ".md")) {
+            const is_supported = std.mem.endsWith(u8, entry.basename, ".md") or
+                std.mem.endsWith(u8, entry.basename, ".org") or
+                std.mem.endsWith(u8, entry.basename, ".txt") or
+                std.mem.endsWith(u8, entry.basename, ".pdf");
+            if (entry.kind == .file and is_supported) {
                 const abs_path = try std.fs.path.join(allocator, &[_][]const u8{ watch_path, entry.path });
                 const stat = watch_dir.statFile(io, entry.path, .{}) catch |err| {
                     if (err == error.FileNotFound) {
@@ -466,7 +478,11 @@ fn watchWorkspace(allocator: std.mem.Allocator, io: std.Io, watch_path: []const 
         while (try walker.next(io)) |entry| {
             if (std.mem.startsWith(u8, entry.path, ".li") or std.mem.startsWith(u8, entry.path, ".")) continue;
 
-            if (entry.kind == .file and std.mem.endsWith(u8, entry.basename, ".md")) {
+            const is_supported = std.mem.endsWith(u8, entry.basename, ".md") or
+                std.mem.endsWith(u8, entry.basename, ".org") or
+                std.mem.endsWith(u8, entry.basename, ".txt") or
+                std.mem.endsWith(u8, entry.basename, ".pdf");
+            if (entry.kind == .file and is_supported) {
                 const abs_path = try std.fs.path.join(allocator, &[_][]const u8{ watch_path, entry.path });
                 const stat = watch_dir.statFile(io, entry.path, .{}) catch |err| {
                     if (err == error.FileNotFound) {

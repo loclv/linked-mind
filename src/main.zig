@@ -64,7 +64,11 @@ pub fn main(init: std.process.Init) !void {
     defer walker.deinit();
 
     while (try walker.next(init.io)) |entry| {
-        if (entry.kind == .file and std.mem.endsWith(u8, entry.basename, ".md")) {
+        const is_supported = std.mem.endsWith(u8, entry.basename, ".md") or
+            std.mem.endsWith(u8, entry.basename, ".org") or
+            std.mem.endsWith(u8, entry.basename, ".txt") or
+            std.mem.endsWith(u8, entry.basename, ".pdf");
+        if (entry.kind == .file and is_supported) {
             const absolute_path = try std.fs.path.join(allocator, &[_][]const u8{ kb_dir_path, entry.path });
             defer allocator.free(absolute_path);
 

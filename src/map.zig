@@ -13,7 +13,7 @@ pub fn main(init: std.process.Init) !void {
     const alloc = std.heap.page_allocator;
     const io = init.io;
 
-    var entries = try scanner.scanDir(io, alloc, "docs", "");
+    var entries = try scanner.scanDir(alloc, io, "docs", "");
     defer {
         for (entries.items) |*e| e.deinit(alloc);
         entries.deinit(alloc);
@@ -24,7 +24,7 @@ pub fn main(init: std.process.Init) !void {
     var json_writer = std.Io.Writer.Allocating.init(alloc);
     defer json_writer.deinit();
 
-    var stringify = std.json.Stringify{ .writer = &json_writer.writer, .options = .{ .whitespace = .indent_2 } };
+    var stringify: std.json.Stringify = .{ .writer = &json_writer.writer, .options = .{ .whitespace = .indent_2 } };
     try stringify.write(entries.items);
     try json_writer.writer.writeByte('\n');
 
