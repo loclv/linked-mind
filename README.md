@@ -20,7 +20,7 @@ Save tokens, read less, understand more.
 - Tag System: Supports `#hashtags` (and Org `#+filetags:` or heading `:tags:`) to categorize knowledge nodes.
 - Link Resolution: Automatically maps human-readable wikilinks to absolute file paths, ignoring extensions.
 - Incremental Scanning: Blazing fast re-scans using `cache.json`, `mtime`, and SHA-256 (only parses changed files).
-- Documentation Index Map: Recursively scans documentation files to generate a structured map of the workspace, defaulting to TOON format (map.toon) for extreme token efficiency with optional JSON output (map.json).
+- Documentation Index Map: Recursively scans documentation files to generate a structured map of the workspace, defaulting to flat CSV format (map.csv) containing parent-child relations with optional JSON (map.json) or TOON (map.toon) output.
 - Web Visualizer: Export an interactive D3-powered Knowledge Graph dashboard to `graph.json` with live UI rehydration and physics-stabilized real-time updates.
 - Native File Watcher: Background daemon that monitors folder changes across all format extensions, outputs JSON events, and triggers instant incremental visualizer re-exports.
 - LLM Export: Generates a single, structured `llm_knowledge.md` file designed for transformer-based LLMs to consume.
@@ -108,17 +108,20 @@ li export --tag research --status completed
   ```
 - Documentation Indexing Map: Run the map-builder executable to scan your documentation and regenerate the map index. It automatically ignores the .git directory and respects any patterns defined in the .gitignore file when scanning.
   ```bash
-  # Generates map.toon from default "docs" folder
+  # Generates map.csv from default "docs" folder
   map-builder
 
   # Generates map.json from default "docs" folder
   map-builder --json
 
-  # Generates map.toon from a custom target folder (e.g. "my_notes")
+  # Generates map.toon from default "docs" folder
+  map-builder --toon
+
+  # Generates map.csv from a custom target folder (e.g. "my_notes")
   map-builder my_notes
 
-  # Generates map.toon from custom target folder and writes to custom output path
-  map-builder my_notes --output custom_map.toon
+  # Generates map.csv from custom target folder and writes to custom output path
+  map-builder my_notes --output custom_map.csv
   ```
 
 ## 🧠 Why Graph-based KB for LLMs?

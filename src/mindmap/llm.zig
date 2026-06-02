@@ -75,7 +75,7 @@ pub const LLMService = struct { // ziglint-ignore: Z032
     fn getApiKey(self: *const LLMService) ![]const u8 {
         if (self.config.api_key.len > 0) return self.config.api_key;
         const from_env = c.getenv("OPENAI_API_KEY") orelse return error.ApiKeyMissing;
-        return from_env;
+        return std.mem.span(from_env);
     }
 
     pub fn chat(self: *LLMService, llm_req: *const LLMRequest) !LLMResponse {

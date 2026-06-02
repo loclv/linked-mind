@@ -18,7 +18,13 @@ pub fn main(init: std.process.Init) !void {
 
     const args = try init.minimal.args.toSlice(init.arena.allocator());
 
-    var format_json = false;
+    const Format = enum {
+        csv,
+        json,
+        toon,
+    };
+
+    var format = Format.csv;
     var target_dir: ?[]const u8 = null;
     var output_file: ?[]const u8 = null;
 
@@ -34,24 +40,30 @@ pub fn main(init: std.process.Init) !void {
                 \\
                 \\OPTIONS:
                 \\  -d, --dir <dir>       Specify the target folder to scan (default: "docs")
-                \\  -o, --output <file>   Specify the output file path (default: "map.toon" or "map.json")
+                \\  -o, --output <file>   Specify the output file path (default: "map.csv", "map.json", or "map.toon")
                 \\  -j, --json            Output in JSON format (map.json)
-                \\  --format <format>     Output format: "toon" or "json" (default: "toon")
+                \\  -t, --toon            Output in TOON format (map.toon)
+                \\  --format <format>     Output format: "csv", "json", or "toon" (default: "csv")
                 \\  -h, --help            Show this help message
                 \\
             ;
             try std.Io.File.stdout().writeStreamingAll(io, help_text);
             return;
         } else if (std.mem.eql(u8, arg, "--json") or std.mem.eql(u8, arg, "-j")) {
-            format_json = true;
+            format = .json;
+        } else if (std.mem.eql(u8, arg, "--toon") or std.mem.eql(u8, arg, "-t")) {
+            format = .toon;
         } else if (std.mem.eql(u8, arg, "--format")) {
             if (i + 1 < args.len) {
-                if (std.mem.eql(u8, args[i + 1], "json")) {
-                    format_json = true;
-                } else if (std.mem.eql(u8, args[i + 1], "toon")) {
-                    format_json = false;
+                const fmt_str = args[i + 1];
+                if (std.mem.eql(u8, fmt_str, "json")) {
+                    format = .json;
+                } else if (std.mem.eql(u8, fmt_str, "toon")) {
+                    format = .toon;
+                } else if (std.mem.eql(u8, fmt_str, "csv")) {
+                    format = .csv;
                 } else {
-                    std.debug.print("Error: Invalid format '{s}'. Must be 'json' or 'toon'.\n", .{args[i + 1]});
+                    std.debug.print("Error: Invalid format '{s}'. Must be 'csv', 'json' or 'toon'.\n", .{fmt_str});
                     std.process.exit(1);
                 }
                 i += 1;
@@ -89,7 +101,11 @@ pub fn main(init: std.process.Init) !void {
     }
 
     const dir_to_scan = target_dir orelse "docs";
-    const default_out = if (format_json) "map.json" else "map.toon";
+    const default_out = switch (format) {
+        .csv => "map.csv",
+        .json => "map.json",
+        .toon => "map.toon",
+    };
     
     // Resolve out_path: if target_dir is explicitly specified, default to writing inside it.
     const out_path = if (output_file) |o|
@@ -108,61 +124,105 @@ pub fn main(init: std.process.Init) !void {
 
     std.mem.sort(entry.Entry, entries.items, {}, entry.entryLessThan);
 
-    if (format_json) {
-        var json_writer = std.Io.Writer.Allocating.init(alloc);
-        defer json_writer.deinit();
+    switch (format) {
+        .csv => {
+            var flat_list = std.ArrayList(entry.FlatEntry).empty;
+            defer flat_list.deinit(alloc);
 
-        var stringify: std.json.Stringify = .{ .writer = &json_writer.writer, .options = .{ .whitespace = .indent_2 } };
-        try stringify.write(entries.items);
-        try json_writer.writer.writeByte('\n');
+            // Collect all entries recursively into flat list and sort alphabetically by path
+            try entry.collectFlat(alloc, entries.items, &flat_list);
+            std.mem.sort(entry.FlatEntry, flat_list.items, {}, entry.flatEntryLessThan);
 
-        const out = try json_writer.toOwnedSlice();
-        defer alloc.free(out);
+            var csv_writer = std.Io.Writer.Allocating.init(alloc);
+            defer csv_writer.deinit();
 
-        // Check if the file already exists and has the exact same content
-        // to avoid unnecessary disk writes and suppress the update output.
-        var up_to_date = false;
-        if (std.Io.Dir.cwd().readFileAlloc(io, out_path, alloc, .unlimited)) |existing_data| {
-            defer alloc.free(existing_data);
-            if (std.mem.eql(u8, existing_data, out)) {
-                up_to_date = true;
+            try csv_writer.writer.writeAll("name,description,path\n");
+            for (flat_list.items) |fe| {
+                try entry.writeCsvField(&csv_writer.writer, fe.name);
+                try csv_writer.writer.writeByte(',');
+                try entry.writeCsvField(&csv_writer.writer, fe.description);
+                try csv_writer.writer.writeByte(',');
+                try entry.writeCsvField(&csv_writer.writer, fe.path);
+                try csv_writer.writer.writeByte('\n');
             }
-        } else |_| {}
 
-        if (!up_to_date) {
-            try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = out_path, .data = out });
-            std.debug.print("Updated {s} with {d} entries.\n", .{out_path, entries.items.len});
-        } else {
-            std.debug.print("nothing changed, didn't update {s}\n", .{out_path});
-        }
-    } else {
-        var toon_writer = std.Io.Writer.Allocating.init(alloc);
-        defer toon_writer.deinit();
+            const out = try csv_writer.toOwnedSlice();
+            defer alloc.free(out);
 
-        try toon_writer.writer.print("[{d}]:\n", .{entries.items.len});
-        for (entries.items) |e| {
-            try e.writeToon(&toon_writer.writer, 4, true);
-        }
+            // Check if the file already exists and has the exact same content
+            // to avoid unnecessary disk writes and suppress the update output.
+            var up_to_date = false;
+            if (std.Io.Dir.cwd().readFileAlloc(io, out_path, alloc, .unlimited)) |existing_data| {
+                defer alloc.free(existing_data);
+                if (std.mem.eql(u8, existing_data, out)) {
+                    up_to_date = true;
+                }
+            } else |_| {}
 
-        const out = try toon_writer.toOwnedSlice();
-        defer alloc.free(out);
-
-        // Check if the file already exists and has the exact same content
-        // to avoid unnecessary disk writes and suppress the update output.
-        var up_to_date = false;
-        if (std.Io.Dir.cwd().readFileAlloc(io, out_path, alloc, .unlimited)) |existing_data| {
-            defer alloc.free(existing_data);
-            if (std.mem.eql(u8, existing_data, out)) {
-                up_to_date = true;
+            if (!up_to_date) {
+                try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = out_path, .data = out });
+                std.debug.print("Updated {s} with {d} entries.\n", .{out_path, flat_list.items.len});
+            } else {
+                std.debug.print("nothing changed, didn't update {s}\n", .{out_path});
             }
-        } else |_| {}
+        },
+        .json => {
+            var json_writer = std.Io.Writer.Allocating.init(alloc);
+            defer json_writer.deinit();
 
-        if (!up_to_date) {
-            try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = out_path, .data = out });
-            std.debug.print("Updated {s} with {d} entries.\n", .{out_path, entries.items.len});
-        } else {
-            std.debug.print("nothing changed, didn't update {s}\n", .{out_path});
-        }
+            var stringify: std.json.Stringify = .{ .writer = &json_writer.writer, .options = .{ .whitespace = .indent_2 } };
+            try stringify.write(entries.items);
+            try json_writer.writer.writeByte('\n');
+
+            const out = try json_writer.toOwnedSlice();
+            defer alloc.free(out);
+
+            // Check if the file already exists and has the exact same content
+            // to avoid unnecessary disk writes and suppress the update output.
+            var up_to_date = false;
+            if (std.Io.Dir.cwd().readFileAlloc(io, out_path, alloc, .unlimited)) |existing_data| {
+                defer alloc.free(existing_data);
+                if (std.mem.eql(u8, existing_data, out)) {
+                    up_to_date = true;
+                }
+            } else |_| {}
+
+            if (!up_to_date) {
+                try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = out_path, .data = out });
+                std.debug.print("Updated {s} with {d} entries.\n", .{out_path, entries.items.len});
+            } else {
+                std.debug.print("nothing changed, didn't update {s}\n", .{out_path});
+            }
+        },
+        .toon => {
+            var toon_writer = std.Io.Writer.Allocating.init(alloc);
+            defer toon_writer.deinit();
+
+            try toon_writer.writer.print("[{d}]:\n", .{entries.items.len});
+            for (entries.items) |e| {
+                try e.writeToon(&toon_writer.writer, 4, true);
+            }
+
+            const out = try toon_writer.toOwnedSlice();
+            defer alloc.free(out);
+
+            // Check if the file already exists and has the exact same content
+            // to avoid unnecessary disk writes and suppress the update output.
+            var up_to_date = false;
+            if (std.Io.Dir.cwd().readFileAlloc(io, out_path, alloc, .unlimited)) |existing_data| {
+                defer alloc.free(existing_data);
+                if (std.mem.eql(u8, existing_data, out)) {
+                    up_to_date = true;
+                }
+            } else |_| {}
+
+            if (!up_to_date) {
+                try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = out_path, .data = out });
+                std.debug.print("Updated {s} with {d} entries.\n", .{out_path, entries.items.len});
+            } else {
+                std.debug.print("nothing changed, didn't update {s}\n", .{out_path});
+            }
+        },
     }
 }
 

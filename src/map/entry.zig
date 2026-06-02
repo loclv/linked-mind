@@ -116,10 +116,65 @@ pub const Entry = struct {
     }
 };
 
+/// FlatEntry represents a flattened node structure for CSV serialization.
+/// It uses borrowed string slices from the hierarchical tree for maximum performance
+/// and 100% memory leak safety.
+pub const FlatEntry = struct {
+    name: []const u8,
+    description: []const u8,
+    path: []const u8,
+};
+
+/// Recursively collects nested Entry hierarchy into a flat list of FlatEntry nodes.
+/// Using borrowed slices avoids dynamic allocation or string duplication.
+pub fn collectFlat(alloc: std.mem.Allocator, entries: []const Entry, list: *std.ArrayList(FlatEntry)) !void {
+    for (entries) |e| {
+        try list.append(alloc, .{
+            .name = e.name orelse "",
+            .description = e.description orelse "",
+            .path = e.path,
+        });
+        if (e.children) |ch| {
+            try collectFlat(alloc, ch.items, list);
+        }
+    }
+}
+
+/// Sort comparator so FlatEntry nodes are ordered alphabetically by path.
+pub fn flatEntryLessThan(_: void, a: FlatEntry, b: FlatEntry) bool {
+    return std.mem.lessThan(u8, a.path, b.path);
+}
+
+/// Helper function to write a CSV field, applying double-quotes and escaping as per RFC 4180.
+pub fn writeCsvField(writer: anytype, field: []const u8) !void {
+    var needs_quotes = false;
+    for (field) |c| {
+        if (c == ',' or c == '\n' or c == '\r' or c == '"') {
+            needs_quotes = true;
+            break;
+        }
+    }
+
+    if (needs_quotes) {
+        try writer.writeByte('"');
+        for (field) |c| {
+            if (c == '"') {
+                try writer.writeAll("\"\"");
+            } else {
+                try writer.writeByte(c);
+            }
+        }
+        try writer.writeByte('"');
+    } else {
+        try writer.writeAll(field);
+    }
+}
+
 /// Sort comparator so entries are ordered alphabetically by path.
 pub fn entryLessThan(_: void, a: Entry, b: Entry) bool {
     return std.mem.lessThan(u8, a.path, b.path);
 }
+
 
 test "Entry: custom JSON serialization of leaf node" {
     const alloc = std.testing.allocator;
@@ -226,3 +281,80 @@ test "Entry: custom TOON serialization of group node" {
 
     try std.testing.expectEqualStrings("  - description: group desc\n    path: dir/\n    children[1]:\n      - name: child\n        description: child desc\n        path: dir/child.md\n", toon_str);
 }
+
+test "FlatEntry: collectFlat, sorting, and CSV serialization" {
+    const alloc = std.testing.allocator;
+
+    const child1: Entry = .{
+        .name = try alloc.dupe(u8, "apple"),
+        .description = try alloc.dupe(u8, "an apple"),
+        .path = try alloc.dupe(u8, "fruit/apple.md"),
+    };
+
+    const child2: Entry = .{
+        .name = try alloc.dupe(u8, "banana"),
+        .description = try alloc.dupe(u8, "a \"yellow\" banana, yummy"),
+        .path = try alloc.dupe(u8, "fruit/banana.md"),
+    };
+
+    var children_list = std.ArrayList(Entry).empty;
+    errdefer {
+        // Clean up individual children if array append fails
+        var c1 = child1;
+        var c2 = child2;
+        c1.deinit(alloc);
+        c2.deinit(alloc);
+        children_list.deinit(alloc);
+    }
+    try children_list.append(alloc, child1);
+    try children_list.append(alloc, child2);
+
+    var parent: Entry = .{
+        .description = try alloc.dupe(u8, "fruit directory"),
+        .path = try alloc.dupe(u8, "fruit/"),
+        .children = children_list,
+    };
+    defer parent.deinit(alloc);
+
+    var entries = std.ArrayList(Entry).empty;
+    defer entries.deinit(alloc);
+    try entries.append(alloc, parent);
+
+    var flat_list = std.ArrayList(FlatEntry).empty;
+    defer flat_list.deinit(alloc);
+
+    try collectFlat(alloc, entries.items, &flat_list);
+    std.mem.sort(FlatEntry, flat_list.items, {}, flatEntryLessThan);
+
+    try std.testing.expectEqual(@as(usize, 3), flat_list.items.len);
+    try std.testing.expectEqualStrings("fruit/", flat_list.items[0].path);
+    try std.testing.expectEqualStrings("fruit/apple.md", flat_list.items[1].path);
+    try std.testing.expectEqualStrings("fruit/banana.md", flat_list.items[2].path);
+
+    var out = std.Io.Writer.Allocating.init(alloc);
+    defer out.deinit();
+
+    try out.writer.writeAll("name,description,path\n");
+    for (flat_list.items) |fe| {
+        try writeCsvField(&out.writer, fe.name);
+        try out.writer.writeByte(',');
+        try writeCsvField(&out.writer, fe.description);
+        try out.writer.writeByte(',');
+        try writeCsvField(&out.writer, fe.path);
+        try out.writer.writeByte('\n');
+    }
+
+    const csv_str = try out.toOwnedSlice();
+    defer alloc.free(csv_str);
+
+    const expected =
+        \\name,description,path
+        \\,fruit directory,fruit/
+        \\apple,an apple,fruit/apple.md
+        \\banana,"a ""yellow"" banana, yummy",fruit/banana.md
+        \\
+    ;
+    try std.testing.expectEqualStrings(expected, csv_str);
+}
+
+

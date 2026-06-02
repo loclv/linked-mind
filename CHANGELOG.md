@@ -4,6 +4,24 @@
 
 ### Added
 
+- Flat CSV output support in map-builder (src/map.zig and src/map/entry.zig) with standard RFC 4180 double-quoting and escaping rules.
+- Public helper structures (FlatEntry), recursive flattening (collectFlat), alphabetical path sorting (flatEntryLessThan), and custom CSV field escaping (writeCsvField) in entry.zig for clean modular reuse.
+- High-coverage unit testing covering all aspects of the new flat CSV formatting, hierarchy traversal, path sorting, and comma/quote escaping.
+
+### Changed
+
+- Set flat CSV (map.csv) as the default output format for the map-builder executable.
+- Added --toon (or -t) command line option to map-builder to optionally output TOON format (map.toon).
+- Modified workspace synchronization (updateGraphAndExport in src/li.zig) to generate and export map.csv instead of map.toon as the default mapping index format.
+- Updated README.md map-builder documentation and examples to show CSV by default and explain the --toon option.
+
+### Fixed
+
+- Restored type safety in LLM API key environment lookup (c.getenv in src/mindmap/llm.zig) using std.mem.span to convert [*:0]const u8 to []const u8 slice.
+- Resolved compilation errors inside src/li.zig query subcommands by defining config and result appropriately as const or var based on mutability.
+
+### Added
+
 - Mind-Map RAG subsystem (`src/mindmap/`): reasoning-based vectorless RAG that structures markdown documents as concept mind-maps.
   - `mindmap.zig`: Core data structures (`ConceptNode`, `CausalLink`, `MindMap`) with `jsonStringify`/`fromJson` serialization.
   - `llm.zig`: LLM HTTP client types (`LLMConfig`, `LLMRequest`, `LLMResponse`) for OpenAI-compatible chat completions.

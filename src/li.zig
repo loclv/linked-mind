@@ -376,12 +376,12 @@ fn runCommand(allocator: std.mem.Allocator, io: std.Io, cmd: []const u8, ws_root
             };
             defer allocator.free(doc);
 
-            var config = llm_mod.LLMConfig.init();
+            const config = llm_mod.LLMConfig.init();
             var llm_svc = llm_mod.LLMService.init(allocator, io, config);
             var engine = query_mod.QueryEngine.init(allocator);
             defer engine.deinit(allocator);
 
-            const result = engine.query(&mind_map, doc, question, &llm_svc) catch |err| {
+            var result = engine.query(&mind_map, doc, question, &llm_svc) catch |err| {
                 if (err == error.ApiKeyMissing) {
                     std.debug.print("Error: OPENAI_API_KEY not set. Export it and try again.\n", .{});
                 } else {
@@ -509,7 +509,7 @@ fn updateGraphAndExport(allocator: std.mem.Allocator, io: std.Io, ws_root: []con
     defer allocator.free(json_path);
     try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = json_path, .data = json });
 
-    // Also rebuild map.toon and map.json for the docs directory under ws_root
+    // Also rebuild map.csv and map.json for the docs directory under ws_root
     const docs_path = try std.fs.path.join(allocator, &.{ ws_root, "docs" });
     defer allocator.free(docs_path);
 
@@ -525,23 +525,35 @@ fn updateGraphAndExport(allocator: std.mem.Allocator, io: std.Io, ws_root: []con
 
         std.mem.sort(map_entry.Entry, entries.items, {}, map_entry.entryLessThan);
 
-        // 1. Rebuild map.toon (default format)
+        // 1. Rebuild map.csv (default format)
         {
-            var toon_writer = std.Io.Writer.Allocating.init(allocator);
-            defer toon_writer.deinit();
+            var flat_list = std.ArrayList(map_entry.FlatEntry).empty;
+            defer flat_list.deinit(allocator);
 
-            try toon_writer.writer.print("[{d}]:\n", .{entries.items.len});
-            for (entries.items) |e| {
-                try e.writeToon(&toon_writer.writer, 4, true);
+            // Collect all entries recursively into flat list and sort alphabetically by path
+            try map_entry.collectFlat(allocator, entries.items, &flat_list);
+            std.mem.sort(map_entry.FlatEntry, flat_list.items, {}, map_entry.flatEntryLessThan);
+
+            var csv_writer = std.Io.Writer.Allocating.init(allocator);
+            defer csv_writer.deinit();
+
+            try csv_writer.writer.writeAll("name,description,path\n");
+            for (flat_list.items) |fe| {
+                try map_entry.writeCsvField(&csv_writer.writer, fe.name);
+                try csv_writer.writer.writeByte(',');
+                try map_entry.writeCsvField(&csv_writer.writer, fe.description);
+                try csv_writer.writer.writeByte(',');
+                try map_entry.writeCsvField(&csv_writer.writer, fe.path);
+                try csv_writer.writer.writeByte('\n');
             }
 
-            const out_toon = try toon_writer.toOwnedSlice();
-            defer allocator.free(out_toon);
+            const out_csv = try csv_writer.toOwnedSlice();
+            defer allocator.free(out_csv);
 
-            const map_toon_path = try std.fs.path.join(allocator, &.{ ws_root, "map.toon" });
-            defer allocator.free(map_toon_path);
+            const map_csv_path = try std.fs.path.join(allocator, &.{ ws_root, "map.csv" });
+            defer allocator.free(map_csv_path);
 
-            try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = map_toon_path, .data = out_toon });
+            try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = map_csv_path, .data = out_csv });
         }
 
         // 2. Rebuild map.json (JSON format)
