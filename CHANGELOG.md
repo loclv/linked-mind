@@ -10,6 +10,7 @@
 
 ### Changed
 
+- Defaulted the map-builder target folder to the current directory "." instead of "./docs/", making "map-builder" equivalent to "map-builder .".
 - Set flat CSV (map.csv) as the default output format for the map-builder executable.
 - Added --toon (or -t) command line option to map-builder to optionally output TOON format (map.toon).
 - Modified workspace synchronization (updateGraphAndExport in src/li.zig) to generate and export map.csv instead of map.toon as the default mapping index format.
@@ -17,6 +18,7 @@
 
 ### Fixed
 
+- Resolved deprecation/lint warnings for indexOf in src/map/metadata.zig by replacing them with std.mem.find.
 - Restored type safety in LLM API key environment lookup (c.getenv in src/mindmap/llm.zig) using std.mem.span to convert [*:0]const u8 to []const u8 slice.
 - Resolved compilation errors inside src/li.zig query subcommands by defining config and result appropriately as const or var based on mutability.
 

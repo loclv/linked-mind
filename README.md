@@ -108,13 +108,13 @@ li export --tag research --status completed
   ```
 - Documentation Indexing Map: Run the map-builder executable to scan your documentation and regenerate the map index. It automatically ignores the .git directory and respects any patterns defined in the .gitignore file when scanning.
   ```bash
-  # Generates map.csv from default "docs" folder
+  # Generates map.csv from current directory "."
   map-builder
 
-  # Generates map.json from default "docs" folder
+  # Generates map.json from current directory "."
   map-builder --json
 
-  # Generates map.toon from default "docs" folder
+  # Generates map.toon from current directory "."
   map-builder --toon
 
   # Generates map.csv from a custom target folder (e.g. "my_notes")

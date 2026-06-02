@@ -21,7 +21,7 @@ pub fn readFileAlloc(alloc: std.mem.Allocator, io: std.Io, path: []const u8) ![]
 /// Returns null if the file has no frontmatter or the keys are missing.
 pub fn extractFrontmatter(alloc: std.mem.Allocator, content: []const u8) !?Metadata {
     if (!std.mem.startsWith(u8, content, "---\n")) return null;
-    const end = std.mem.indexOf(u8, content[4..], "\n---") orelse return null;
+    const end = std.mem.find(u8, content[4..], "\n---") orelse return null;
     const fm = content[4 .. 4 + end];
 
     var name: ?[]const u8 = null;
@@ -96,9 +96,9 @@ pub fn extractZigDesc(content: []const u8) []const u8 {
 ///   2. First `//` line comment.
 pub fn extractJsTsDesc(content: []const u8) []const u8 {
     // Look for a /** block.
-    if (std.mem.indexOf(u8, content, "/**")) |start| {
+    if (std.mem.find(u8, content, "/**")) |start| {
         const body_start = start + 3;
-        const block_end = std.mem.indexOf(u8, content[body_start..], "*/") orelse content.len - body_start;
+        const block_end = std.mem.find(u8, content[body_start..], "*/") orelse content.len - body_start;
         const block = content[body_start .. body_start + block_end];
         var blines = std.mem.splitScalar(u8, block, '\n');
         while (blines.next()) |line| {
@@ -205,14 +205,14 @@ pub fn extractPyDesc(content: []const u8) []const u8 {
             // Text on the same opening line (and not immediately closed).
             if (after.len > 0 and !std.mem.startsWith(u8, after, q)) {
                 // Strip trailing closing quotes if present on same line.
-                const close = std.mem.indexOf(u8, after, q) orelse after.len;
+                const close = std.mem.find(u8, after, q) orelse after.len;
                 return std.mem.trim(u8, after[0..close], " \r\t.");
             }
             // Content starts on the next line.
             while (lines.next()) |next_line| {
                 const nt = std.mem.trim(u8, next_line, " \r\t");
                 if (nt.len == 0) continue;
-                const close = std.mem.indexOf(u8, nt, q) orelse nt.len;
+                const close = std.mem.find(u8, nt, q) orelse nt.len;
                 return std.mem.trim(u8, nt[0..close], " \r\t.");
             }
             return "";

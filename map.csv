@@ -12,7 +12,7 @@ build-zig,,build.zig.zon
 ,Docs,docs/
 architecture,🏗 Architecture & Design,docs/ARCHITECTURE.md
 llm-strategy,🧠 Boosting LLM Intelligence with Linked-Mind,docs/LLM_STRATEGY.md
-Map Index,"The Documentation Index Map System (compiled as the map-builder executable target) scans the docs directory in your workspace, extracts metadata from each file (frontmatter for Markdown, comments and filenames for Zig), and rebuilds the structured index map representing your knowledge base.",docs/MAP_INDEX.md
+Map Index,"The Documentation Index Map System (compiled as the map-builder executable target) scans the target directory (defaulting to the current directory) in your workspace, extracts metadata from each file (frontmatter for Markdown, comments and filenames for Zig), and rebuilds the structured index map representing your knowledge base.",docs/MAP_INDEX.md
 llm-wiki,Source: https://gist.githubusercontent.com/karpathy/442a6bf555914893e9891c11519de94f/raw,docs/llm_wiki.md
 map,`map.csv` - CSV Data Format for mapping knowledge base,docs/map.md
 ,Superpowers,docs/superpowers/

@@ -39,7 +39,7 @@ pub fn main(init: std.process.Init) !void {
                 \\  map-builder [target_folder] [options]
                 \\
                 \\OPTIONS:
-                \\  -d, --dir <dir>       Specify the target folder to scan (default: "docs")
+                \\  -d, --dir <dir>       Specify the target folder to scan (default: ".")
                 \\  -o, --output <file>   Specify the output file path (default: "map.csv", "map.json", or "map.toon")
                 \\  -j, --json            Output in JSON format (map.json)
                 \\  -t, --toon            Output in TOON format (map.toon)
@@ -100,7 +100,8 @@ pub fn main(init: std.process.Init) !void {
         }
     }
 
-    const dir_to_scan = target_dir orelse "docs";
+    // Default to the current directory "." instead of "docs" per project requirement
+    const dir_to_scan = target_dir orelse ".";
     const default_out = switch (format) {
         .csv => "map.csv",
         .json => "map.json",

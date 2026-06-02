@@ -1,6 +1,6 @@
 ---
 name: Map Index
-description: The Documentation Index Map System (compiled as the map-builder executable target) scans the docs directory in your workspace, extracts metadata from each file (frontmatter for Markdown, comments and filenames for Zig), and rebuilds the structured index map representing your knowledge base.
+description: The Documentation Index Map System (compiled as the map-builder executable target) scans the target directory (defaulting to the current directory) in your workspace, extracts metadata from each file (frontmatter for Markdown, comments and filenames for Zig), and rebuilds the structured index map representing your knowledge base.
 tags:
   - map
   - index
@@ -11,7 +11,7 @@ tags:
 
 # Documentation Index Map System
 
-The Documentation Index Map System (compiled as the map-builder executable target) scans the docs directory in your workspace, extracts metadata from each file (frontmatter for Markdown, comments and filenames for Zig), and rebuilds the structured index map representing your knowledge base.
+The Documentation Index Map System (compiled as the map-builder executable target) scans the target directory (defaulting to the current directory) in your workspace, extracts metadata from each file (frontmatter for Markdown, comments and filenames for Zig), and rebuilds the structured index map representing your knowledge base.
 
 ## File Formats
 
@@ -81,13 +81,13 @@ To ensure that internal build artifacts, system files, caches, and VCS directori
 
 ### Basic Usage
 
-Generate map.toon from the default docs directory:
+Generate map.toon from the current directory:
 
 ```bash
 zig-out/bin/map-builder
 ```
 
-Generate map.json (JSON option) from the default `docs` directory:
+Generate map.json (JSON option) from the current directory:
 You can explicitly request the JSON format by passing --json, -j, or --format json:
 
 ```bash
