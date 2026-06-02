@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const c = std.c;
+
 pub const LLMConfig = struct { // ziglint-ignore: Z032
     model: []const u8 = "gpt-4o",
     endpoint: []const u8 = "https://api.openai.com/v1/chat/completions",
@@ -52,6 +54,83 @@ pub const LLMRequest = struct { // ziglint-ignore: Z032
         try jw.write(self.temperature);
         try jw.endObject();
         return alloc.dupe(u8, out.written());
+    }
+};
+
+pub const LLMError = error{ // ziglint-ignore: Z032
+    ApiKeyMissing,
+    HttpStatusError,
+    ResponseTooLarge,
+};
+
+pub const LLMService = struct { // ziglint-ignore: Z032
+    allocator: std.mem.Allocator,
+    config: LLMConfig,
+    io: std.Io,
+
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, config: LLMConfig) LLMService {
+        return .{ .allocator = allocator, .config = config, .io = io };
+    }
+
+    fn getApiKey(self: *const LLMService) ![]const u8 {
+        if (self.config.api_key.len > 0) return self.config.api_key;
+        const from_env = c.getenv("OPENAI_API_KEY") orelse return error.ApiKeyMissing;
+        return from_env;
+    }
+
+    pub fn chat(self: *LLMService, llm_req: *const LLMRequest) !LLMResponse {
+        const api_key = try self.getApiKey();
+        const json_body = try llm_req.toJson(self.allocator);
+        defer self.allocator.free(json_body);
+
+        var client: std.http.Client = .{ .allocator = self.allocator, .io = self.io };
+        defer client.deinit();
+
+        const uri = try std.Uri.parse(self.config.endpoint);
+
+        var auth_hdr_buf: [4096]u8 = undefined;
+        const auth_value = try std.fmt.bufPrint(&auth_hdr_buf, "Bearer {s}", .{api_key});
+
+        var extra_headers = [_]std.http.Header{
+            .{ .name = "Authorization", .value = auth_value },
+            .{ .name = "Content-Type", .value = "application/json" },
+        };
+
+        var req = try client.request(.POST, uri, .{ .extra_headers = &extra_headers });
+        defer req.deinit();
+
+        var transfer_buf: [4096]u8 = undefined;
+        var bw = try req.sendBody(&transfer_buf);
+        try bw.writer.writeAll(json_body);
+        try bw.end();
+
+        var redirect_buf: [4096]u8 = undefined;
+        var resp = try req.receiveHead(&redirect_buf);
+
+        if (resp.head.status.class() != .success) {
+            var err_reader = resp.reader(&transfer_buf);
+            var err_list: std.ArrayList(u8) = .empty;
+            defer err_list.deinit(self.allocator);
+            var chunk: [512]u8 = undefined;
+            while (true) {
+                const n = try err_reader.readSliceShort(&chunk);
+                if (n == 0) break;
+                try err_list.appendSlice(self.allocator, chunk[0..n]);
+            }
+            std.log.err("LLM API returned {}: {s}", .{ resp.head.status, err_list.items });
+            return error.HttpStatusError;
+        }
+
+        var resp_reader = resp.reader(&transfer_buf);
+        var resp_list: std.ArrayList(u8) = .empty;
+        defer resp_list.deinit(self.allocator);
+        while (true) {
+            const n = try resp_reader.readSliceShort(&transfer_buf);
+            if (n == 0) break;
+            try resp_list.appendSlice(self.allocator, transfer_buf[0..n]);
+        }
+
+        return LLMResponse.fromJson(self.allocator, resp_list.items);
     }
 };
 

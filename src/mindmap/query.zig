@@ -1,7 +1,11 @@
 const std = @import("std");
 const mindmap_mod = @import("mindmap.zig");
+const llm_mod = @import("llm.zig");
 const ConceptNode = mindmap_mod.ConceptNode;
 const MindMap = mindmap_mod.MindMap;
+const LLMService = llm_mod.LLMService; // ziglint-ignore: Z032
+const LLMMessage = llm_mod.LLMMessage; // ziglint-ignore: Z032
+const LLMRequest = llm_mod.LLMRequest; // ziglint-ignore: Z032
 
 pub const QueryResult = struct {
     answer: []const u8,
@@ -87,6 +91,82 @@ pub const QueryEngine = struct {
         }
 
         return line_buf.toOwnedSlice(alloc);
+    }
+    /// Query the mind-map using the LLM: collect leaf context, build prompts, call the LLM.
+    pub fn query(self: *QueryEngine, mindmap: *const MindMap, doc: []const u8, question: []const u8, llm: *LLMService) !QueryResult {
+        const all_leaves = try self.collectLeafNodes(mindmap);
+        defer self.allocator.free(all_leaves);
+
+        const sorted = try self.allocator.dupe(*const ConceptNode, all_leaves);
+        defer self.allocator.free(sorted);
+        std.mem.sort(*const ConceptNode, sorted, {}, struct {
+            fn lessThan(_: void, a: *const ConceptNode, b: *const ConceptNode) bool {
+                return a.source_start < b.source_start;
+            }
+        }.lessThan);
+
+        const context = try self.assembleContext(self.allocator, doc, sorted);
+        defer self.allocator.free(context);
+
+        const tree_str = try self.buildTreeString(mindmap);
+        defer self.allocator.free(tree_str);
+
+        const system_msg = try std.fmt.allocPrint(self.allocator,
+            \\You are a knowledge assistant analyzing a structured document mind-map.
+            \\Answer concisely based only on the document content provided.
+            \\
+            \\Document tree structure:
+            \\{s}
+            \\
+            \\Relevant content from document sections:
+            \\{s}
+        , .{ tree_str, context });
+        defer self.allocator.free(system_msg);
+
+        const user_msg = try std.fmt.allocPrint(self.allocator, "Question: {s}", .{question});
+        defer self.allocator.free(user_msg);
+
+        var messages = [_]LLMMessage{
+            .{ .role = "system", .content = system_msg },
+            .{ .role = "user", .content = user_msg },
+        };
+
+        var llm_req = LLMRequest.init(messages[0..], "gpt-4o", 0.3);
+        var llm_resp = try llm.chat(&llm_req);
+        defer llm_resp.deinit(self.allocator);
+
+        var node_ids: std.ArrayList([]const u8) = .empty;
+        errdefer {
+            for (node_ids.items) |id| self.allocator.free(id);
+            node_ids.deinit(self.allocator);
+        }
+        for (sorted) |node| {
+            try node_ids.append(self.allocator, try self.allocator.dupe(u8, node.id));
+        }
+
+        return .{
+            .answer = try self.allocator.dupe(u8, llm_resp.content),
+            .context = try self.allocator.dupe(u8, context),
+            .node_ids = try node_ids.toOwnedSlice(self.allocator),
+        };
+    }
+
+    /// Build an indented tree representation for the system prompt.
+    fn buildTreeString(self: *QueryEngine, mindmap: *const MindMap) ![]const u8 {
+        var out = std.Io.Writer.Allocating.init(self.allocator);
+        defer out.deinit();
+        for (mindmap.nodes.items) |*node| {
+            try self.renderNode(&out.writer, node, 0);
+        }
+        return out.toOwnedSlice();
+    }
+
+    fn renderNode(self: *QueryEngine, w: *std.Io.Writer, node: *const ConceptNode, depth: usize) !void {
+        for (0..depth) |_| try w.writeAll("  ");
+        try w.print("- {s} (lines {d}-{d})\n", .{ node.title, node.source_start, node.source_end });
+        if (node.children) |*ch| {
+            for (ch.items) |*child| try self.renderNode(w, child, depth + 1);
+        }
     }
 };
 

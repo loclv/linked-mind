@@ -4,16 +4,23 @@
 
 ### Added
 
-- **Mind-Map RAG subsystem** (`src/mindmap/`): reasoning-based vectorless RAG that structures markdown documents as concept mind-maps.
+- Mind-Map RAG subsystem (`src/mindmap/`): reasoning-based vectorless RAG that structures markdown documents as concept mind-maps.
   - `mindmap.zig`: Core data structures (`ConceptNode`, `CausalLink`, `MindMap`) with `jsonStringify`/`fromJson` serialization.
   - `llm.zig`: LLM HTTP client types (`LLMConfig`, `LLMRequest`, `LLMResponse`) for OpenAI-compatible chat completions.
   - `serialize.zig`: Convenience wrappers (`serializeToJson`/`deserializeFromJson`).
   - `builder.zig`: Build pipeline — heading extraction (`extractHeadings`), URL-safe ID generation (`headingId`), and tree construction (`buildHeadingTree`) using indexed parent-mapping with reverse-order child stealing.
   - `query.zig`: Query pipeline — leaf collection, node selection by ID, and context assembly from source document lines.
 - `li mind build <file.md>`: CLI subcommand to build a mind-map from any markdown file, written to `mind-map.json` in the workspace root.
-- `li mind query "<question>"`: CLI subcommand to load and query a pre-built mind-map (preview — full LLM query pipeline requires API integration).
+- `li mind query "<question>"`: CLI subcommand to query a pre-built mind-map using LLM (set `OPENAI_API_KEY` env var).
 - `src/root.zig` re-exports for all mind-map modules.
 - Updated `README.md` with mind-map RAG documentation and `li mind build`/`li mind query` command reference.
+
+### Changed
+
+- LLM API integration: `LLMService` with native Zig HTTP client (`std.http.Client`) for real OpenAI-compatible API calls. `li mind query` now makes live HTTP requests.
+  - `llm.zig`: Added `LLMService` struct with `chat()` method — sends JSON payload, parses response.
+  - `query.zig`: Added `query()` method to `QueryEngine` — collects leaf context, builds tree representation, constructs system/user prompts, calls LLM.
+  - `li.zig`: Wired `li mind query` to use `LLMService`; reads `OPENAI_API_KEY` from environment.
 
 ### Fixed
 

@@ -24,6 +24,8 @@ const map_entry = @import("map/entry.zig");
 const mindmap = @import("mindmap/mindmap.zig");
 const builder = @import("mindmap/builder.zig");
 const serialize = @import("mindmap/serialize.zig");
+const llm_mod = @import("mindmap/llm.zig");
+const query_mod = @import("mindmap/query.zig");
 
 const usage =
     \\Usage: li <command> [options]
@@ -40,7 +42,7 @@ const usage =
     \\  visualize         Export graph.json for web visualization
     \\  watch [path]      Watch folder for changes and emit events (JSON)
     \\  mind build <file>  Build mind-map from a Markdown file (mind-map.json)
-    \\  mind query <q>     Query the mind-map (preview — requires LLM API integration)
+    \\  mind query <q>     Query the mind-map using LLM (set OPENAI_API_KEY)
     \\
     \\Global Options:
     \\  --tag <tag>       Filter results by tag
@@ -366,9 +368,30 @@ fn runCommand(allocator: std.mem.Allocator, io: std.Io, cmd: []const u8, ws_root
             defer allocator.free(json_str);
             var mind_map = try serialize.deserializeFromJson(allocator, json_str);
             defer mind_map.deinit(allocator);
-            std.debug.print("Loaded mind-map: {s} ({d} top-level nodes)\n", .{ mind_map.title, mind_map.nodes.items.len });
-            std.debug.print("Question: {s}\n", .{question});
-            std.debug.print("Note: Full LLM query pipeline requires LLM API integration.\n", .{});
+
+            // Read the source document to assemble context
+            const doc = std.Io.Dir.cwd().readFileAlloc(io, mind_map.title, allocator, .unlimited) catch |err| {
+                std.debug.print("Warning: could not read source document '{s}' ({any}). Using mind-map tree only.\n", .{ mind_map.title, err });
+                return;
+            };
+            defer allocator.free(doc);
+
+            var config = llm_mod.LLMConfig.init();
+            var llm_svc = llm_mod.LLMService.init(allocator, io, config);
+            var engine = query_mod.QueryEngine.init(allocator);
+            defer engine.deinit(allocator);
+
+            const result = engine.query(&mind_map, doc, question, &llm_svc) catch |err| {
+                if (err == error.ApiKeyMissing) {
+                    std.debug.print("Error: OPENAI_API_KEY not set. Export it and try again.\n", .{});
+                } else {
+                    std.debug.print("Query failed: {any}\n", .{err});
+                }
+                return;
+            };
+            defer result.deinit(allocator);
+
+            std.debug.print("{s}\n", .{result.answer});
         } else {
             std.debug.print("Unknown mind subcommand: {s}. Use 'build' or 'query'.\n", .{subcmd});
         }
