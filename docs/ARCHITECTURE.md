@@ -32,8 +32,19 @@ The workspace-aware CLI orchestration layer:
 - Filtered Dumps: The terminal output can be scoped using tags to preview context before a full export.
 - Memory Management: Implements a `GeneralPurposeAllocator` with full leak detection to ensure a clean exit after scanning thousands of files.
 - Native File Watcher Daemon: Implements a polling loop under the `li watch` command that monitors the workspace for Markdown changes, outputs structured events, and triggers efficient, incremental graph regenerations.
+- Mind-Map RAG: Dispatches `li mind build` (extracts headings → builds section tree → serializes to `mind-map.json`) and `li mind query` (loads mind-map, assembles context from source document).
 
-### 4. `index.html` (Web Visualization)
+### 4. `src/mindmap/` (Mind-Map RAG)
+
+A reasoning-based, vectorless RAG subsystem for long documents:
+
+- **Data Structures** (`mindmap.zig`): `ConceptNode` (section with children + source range), `CausalLink` (typed edge with source/target/relation), and `MindMap` (root container). Custom `jsonStringify` and `fromJson` for efficient serialization.
+- **LLM Client** (`llm.zig`): OpenAI-compatible chat completion types (`LLMConfig`, `LLMRequest`, `LLMResponse`) for LLM-guided tree traversal. No external dependencies — uses `std.json` and `std.http.Client`.
+- **Serialization** (`serialize.zig`): Thin convenience wrappers (`serializeToJson`/`deserializeFromJson`) over the built-in JSON methods.
+- **Build Pipeline** (`builder.zig`): Extracts markdown headings (`extractHeadings`), generates URL-safe IDs (`headingId`), and constructs a section tree via indexed parent-mapping with reverse-order child stealing to avoid pointer invalidation.
+- **Query Pipeline** (`query.zig`): Collects leaf nodes, selects relevant sub-trees by ID, and assembles source-document context from line ranges.
+
+### 5. `index.html` (Web Visualization)
 
 The browser UI implementation:
 
