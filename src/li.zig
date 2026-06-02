@@ -21,6 +21,9 @@ const graph = @import("graph.zig");
 const parser = @import("parser.zig");
 const map_scanner = @import("map/scanner.zig");
 const map_entry = @import("map/entry.zig");
+const mindmap = @import("mindmap/mindmap.zig");
+const builder = @import("mindmap/builder.zig");
+const serialize = @import("mindmap/serialize.zig");
 
 const usage =
     \\Usage: li <command> [options]
@@ -36,6 +39,8 @@ const usage =
     \\  suggest           Suggest missing links based on similarity
     \\  visualize         Export graph.json for web visualization
     \\  watch [path]      Watch folder for changes and emit events (JSON)
+    \\  mind build <file>  Build mind-map from a Markdown file (mind-map.json)
+    \\  mind query <q>     Query the mind-map (preview — requires LLM API integration)
     \\
     \\Global Options:
     \\  --tag <tag>       Filter results by tag
@@ -313,6 +318,60 @@ fn runCommand(allocator: std.mem.Allocator, io: std.Io, cmd: []const u8, ws_root
         const watch_path = try std.Io.Dir.cwd().realPathFileAlloc(io, watch_path_raw, allocator);
         defer allocator.free(watch_path);
         try watchWorkspace(allocator, io, watch_path);
+    } else if (std.mem.eql(u8, cmd, "mind")) {
+        if (args.len < 1) {
+            std.debug.print("Usage: li mind <build|query> [args]\n", .{});
+            return;
+        }
+        const subcmd = args[0];
+        if (std.mem.eql(u8, subcmd, "build")) {
+            if (args.len < 2) {
+                std.debug.print("Usage: li mind build <file.md>\n", .{});
+                return;
+            }
+            const file_path = args[1];
+            const content = try std.Io.Dir.cwd().readFileAlloc(io, file_path, allocator, .unlimited);
+            defer allocator.free(content);
+
+            var tree = try builder.buildHeadingTree(allocator, content);
+            defer tree.deinit(allocator);
+
+            var mind_map = try mindmap.MindMap.init(allocator, file_path, "");
+            defer mind_map.deinit(allocator);
+
+            // Steal tree's children into the mind-map to avoid double-free
+            if (tree.children) |*ch| {
+                mind_map.nodes = ch.*;
+                tree.children = null;
+            }
+
+            const out_path = try std.fs.path.join(allocator, &.{ ws_root, "mind-map.json" });
+            defer allocator.free(out_path);
+            const json_data = try serialize.serializeToJson(allocator, &mind_map);
+            defer allocator.free(json_data);
+            try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = out_path, .data = json_data });
+            std.debug.print("Mind-map written to {s}\n", .{out_path});
+        } else if (std.mem.eql(u8, subcmd, "query")) {
+            if (args.len < 2) {
+                std.debug.print("Usage: li mind query \"<question>\"\n", .{});
+                return;
+            }
+            const question = args[1];
+            const map_path = try std.fs.path.join(allocator, &.{ ws_root, "mind-map.json" });
+            defer allocator.free(map_path);
+            const json_str = std.Io.Dir.cwd().readFileAlloc(io, map_path, allocator, .unlimited) catch |err| {
+                std.debug.print("No mind-map found at {s}. Run 'li mind build' first. ({any})\n", .{ map_path, err });
+                return;
+            };
+            defer allocator.free(json_str);
+            var mind_map = try serialize.deserializeFromJson(allocator, json_str);
+            defer mind_map.deinit(allocator);
+            std.debug.print("Loaded mind-map: {s} ({d} top-level nodes)\n", .{ mind_map.title, mind_map.nodes.items.len });
+            std.debug.print("Question: {s}\n", .{question});
+            std.debug.print("Note: Full LLM query pipeline requires LLM API integration.\n", .{});
+        } else {
+            std.debug.print("Unknown mind subcommand: {s}. Use 'build' or 'query'.\n", .{subcmd});
+        }
     } else {
         std.debug.print("Unknown command: {s}\n{s}", .{ cmd, usage });
     }

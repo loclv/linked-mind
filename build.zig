@@ -167,6 +167,15 @@ pub fn build(b: *std.Build) void {
     });
     const run_map_tests = b.addRunArtifact(map_tests);
 
+    const mindmap_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/mindmap/mindmap.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    const run_mindmap_tests = b.addRunArtifact(mindmap_tests);
+
     // A top level step for running all tests. dependOn can be called multiple
     // times and since the two run steps do not depend on one another, this will
     // make the two of them run in parallel.
@@ -174,6 +183,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_mod_tests.step);
     test_step.dependOn(&run_exe_tests.step);
     test_step.dependOn(&run_map_tests.step);
+    test_step.dependOn(&run_mindmap_tests.step);
 
     // Just like flags, top level steps are also listed in the `--help` menu.
     //

@@ -24,6 +24,7 @@ Save tokens, read less, understand more.
 - Web Visualizer: Export an interactive D3-powered Knowledge Graph dashboard to `graph.json` with live UI rehydration and physics-stabilized real-time updates.
 - Native File Watcher: Background daemon that monitors folder changes across all format extensions, outputs JSON events, and triggers instant incremental visualizer re-exports.
 - LLM Export: Generates a single, structured `llm_knowledge.md` file designed for transformer-based LLMs to consume.
+- Mind-Map RAG: Structure long Markdown documents as concept mind-maps (section tree + causal links). Retrieve answers via LLM-guided tree traversal — no vectors, no chunking. Includes build (`li mind build`) and query (`li mind query`) subcommands.
 
 ## 🛠 Usage
 
@@ -97,6 +98,14 @@ li export --tag research --status completed
   ```bash
   li watch
   ```
+- Mind-Map RAG (Preview): Build and query a concept mind-map from any Markdown document. The system extracts headings into a section tree, then (optionally) uses an LLM to identify causal cross-links. Queries traverse the tree guided by the LLM.
+  ```bash
+  # Build a mind-map from a markdown file (generates mind-map.json)
+  li mind build document.md
+
+  # Query the mind-map
+  li mind query "What are the key causes of X?"
+  ```
 - Documentation Indexing Map: Run the map-builder executable to scan your documentation and regenerate the map index. It automatically ignores the .git directory and respects any patterns defined in the .gitignore file when scanning.
   ```bash
   # Generates map.toon from default "docs" folder
@@ -111,15 +120,26 @@ li export --tag research --status completed
   # Generates map.toon from custom target folder and writes to custom output path
   map-builder my_notes --output custom_map.toon
   ```
+
 ## 🧠 Why Graph-based KB for LLMs?
+
 Standard RAG (Retrieval-Augmented Generation) often treats files as isolated chunks. However, human knowledge is a web. By using Linked-Mind, you provide the LLM with:
+
 1. Contextual Proximity: If Node A links to Node B, the LLM knows they are related even if they don't share keywords.
 2. Structural Understanding: The AI sees the hierarchy and tags, allowing it to "browse" your brain more effectively.
+
 ## 📂 Project Structure
+
 - `src/parser.zig`: Unified parser for multiple formats (.md, .org, .txt, .pdf) extracting `[[links]]` and `#tags`.
 - `src/graph.zig`: Adjacency-list based graph representation and link resolver.
 - `src/li.zig`: Workspace-aware CLI with `init`, `scan`, `export`, `path`, `clusters`, `gc`, `similar`, `suggest`, `visualize`.
 - `src/cache.zig`: Incremental scanning engine with `mtime` + SHA-256 cache.
 - `src/main.zig`: Legacy CLI handler (direct path mode).
+- `src/mindmap/`: Mind-Map RAG subsystem.
+  - `mindmap.zig`: Core data structures (`ConceptNode`, `CausalLink`, `MindMap`) with JSON serialization.
+  - `llm.zig`: LLM HTTP client types (`LLMConfig`, `LLMRequest`, `LLMResponse`).
+  - `serialize.zig`: Convenience wrappers for JSON serialization/deserialization.
+  - `builder.zig`: Build pipeline — markdown heading extraction and tree construction.
+  - `query.zig`: Query pipeline — leaf collection, context assembly, reasoning traversal.
 
 Built with speed and precision in Zig.

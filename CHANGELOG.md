@@ -1,5 +1,28 @@
 # CHANGELOG
 
+## [Unreleased] - 2026-06-02
+
+### Added
+
+- **Mind-Map RAG subsystem** (`src/mindmap/`): reasoning-based vectorless RAG that structures markdown documents as concept mind-maps.
+  - `mindmap.zig`: Core data structures (`ConceptNode`, `CausalLink`, `MindMap`) with `jsonStringify`/`fromJson` serialization.
+  - `llm.zig`: LLM HTTP client types (`LLMConfig`, `LLMRequest`, `LLMResponse`) for OpenAI-compatible chat completions.
+  - `serialize.zig`: Convenience wrappers (`serializeToJson`/`deserializeFromJson`).
+  - `builder.zig`: Build pipeline — heading extraction (`extractHeadings`), URL-safe ID generation (`headingId`), and tree construction (`buildHeadingTree`) using indexed parent-mapping with reverse-order child stealing.
+  - `query.zig`: Query pipeline — leaf collection, node selection by ID, and context assembly from source document lines.
+- `li mind build <file.md>`: CLI subcommand to build a mind-map from any markdown file, written to `mind-map.json` in the workspace root.
+- `li mind query "<question>"`: CLI subcommand to load and query a pre-built mind-map (preview — full LLM query pipeline requires API integration).
+- `src/root.zig` re-exports for all mind-map modules.
+- Updated `README.md` with mind-map RAG documentation and `li mind build`/`li mind query` command reference.
+
+### Fixed
+
+- `map.toon` descriptions: removed leading `!` from all Zig file descriptions.
+- `extractZigDesc` in `src/map/metadata.zig:78`: `//` fallback now skips `//!` lines.
+- `CausalLink.deinit` removed (was misleading no-op; `ConceptNode.deinit` handles all cleanup).
+- `MindMap.toJson` unused `alloc` parameter removed.
+- ArrayList initialization: replaced non-existent `init(alloc)` with `.empty` pattern across mindmap module.
+
 ## [Unreleased] - 2026-05-31
 
 ### Added

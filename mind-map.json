@@ -1,0 +1,48 @@
+{
+  "title": "/tmp/test_mind.md",
+  "summary": "",
+  "nodes": [
+    {
+      "id": "introduction",
+      "title": "Introduction",
+      "summary": "",
+      "level": 1,
+      "source_start": 1,
+      "source_end": 9,
+      "children": [
+        {
+          "id": "background",
+          "title": "Background",
+          "summary": "",
+          "level": 2,
+          "source_start": 3,
+          "source_end": 9,
+          "children": null,
+          "causal_links": null
+        }
+      ],
+      "causal_links": null
+    },
+    {
+      "id": "main-topic",
+      "title": "Main Topic",
+      "summary": "",
+      "level": 1,
+      "source_start": 5,
+      "source_end": 9,
+      "children": [
+        {
+          "id": "subtopic",
+          "title": "Subtopic",
+          "summary": "",
+          "level": 2,
+          "source_start": 7,
+          "source_end": 9,
+          "children": null,
+          "causal_links": null
+        }
+      ],
+      "causal_links": null
+    }
+  ]
+}
