@@ -1,11 +1,20 @@
+---
+name: "anthropic-prompt-caching"
+description: "Demonstrates how to use Anthropic's prompt caching feature."
+created_at: 2026-06-03
+---
+
 # Prompt Caching with the Claude API
+
 Prompt caching lets you store and reuse context within your prompts, reducing latency by >2x and costs by up to 90% for repetitive tasks.
 
 There are two ways to enable prompt caching:
 
 - Automatic caching (recommended): Add a single `cache_control` field at the top level of your request. The system automatically manages cache breakpoints for you.
 - Explicit cache breakpoints: Place `cache_control` on individual content blocks for fine-grained control over exactly what gets cached.
+
 ## Setup
+
 ```python
 import time
 import anthropic
@@ -14,14 +23,19 @@ client = anthropic.Anthropic()
 MODEL_NAME = "claude-sonnet-4-6"
 TIMESTAMP = int(time.time())
 ```
+
 ## Example 1: Automatic caching (single turn)
+
 Automatic caching is the easiest way to get started. Add `cache_control={"type": "ephemeral"}` at the top level of your `messages.create()` call and the system handles the rest — automatically placing the cache breakpoint on the last cacheable block.
 
 We compare three scenarios:
+
 1. No caching — baseline
 2. First cached call — creates the cache entry (similar timing to baseline)
 3. Second cached call — reads from cache (the big speedup)
+
 ### Baseline: no caching
+
 ```python
 start = time.time()
 baseline_response = client.messages.create(
@@ -40,7 +54,9 @@ baseline_response = client.messages.create(
 )
 baseline_time = time.time() - start
 ```
+
 ### First call with automatic caching (cache write)
+
 The only change is the top-level `cache_control` parameter. The first call writes to the cache, so timing is similar to the baseline.
 
 ```python
@@ -62,7 +78,9 @@ write_response = client.messages.create(
 )
 write_time = time.time() - start
 ```
+
 ### Second call with automatic caching (cache hit)
+
 Same request again. This time the cached prefix is reused, so you should see a significant speedup.
 
 ```python
@@ -90,7 +108,9 @@ hit_time = time.time() - start
 # Cache hit:      1.48s
 # Speedup:        3.3x
 ```
+
 ## Example 2: Automatic caching in a multi-turn conversation
+
 Automatic caching really shines in multi-turn conversations. The cache breakpoint automatically moves forward as the conversation grows — you don't need to manage any markers yourself.
 
 | Request | Cache behavior |
@@ -129,7 +149,9 @@ for i, question in enumerate(questions, 1):
 ```
 
 After the first turn, nearly 100% of input tokens are read from cache on every subsequent turn.
+
 ## Example 3: Explicit cache breakpoints
+
 For more control, you can place `cache_control` directly on individual content blocks. This is useful when:
 
 - You want to cache different sections with different TTLs
