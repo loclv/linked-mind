@@ -27,7 +27,10 @@ const serialize = @import("mindmap/serialize.zig");
 const llm_mod = @import("mindmap/llm.zig");
 const query_mod = @import("mindmap/query.zig");
 
+const log = std.log.scoped(.li);
+
 const usage =
+
     \\Usage: li <command> [options]
     \\
     \\Commands:
@@ -43,6 +46,7 @@ const usage =
     \\  watch [path]      Watch folder for changes and emit events (JSON)
     \\  mind build <file>  Build mind-map from a Markdown file (mind-map.json)
     \\  mind query <q>     Query the mind-map using LLM (set OPENAI_API_KEY)
+    \\  serve [--port]    Start API and Visualizer server (default port: 8080)
     \\
     \\Global Options:
     \\  --tag <tag>       Filter results by tag
@@ -91,8 +95,9 @@ fn initWorkspace(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !vo
     std.debug.print("Initialized empty Linked-Mind workspace in {s}/.li/\n", .{path});
 }
 
-fn findWorkspaceRoot(allocator: std.mem.Allocator, io: std.Io) ![]const u8 {
+fn findWorkspaceRoot(allocator: std.mem.Allocator, io: std.Io) ![:0]u8 {
     var current_path = try std.Io.Dir.cwd().realPathFileAlloc(io, ".", allocator);
+    errdefer allocator.free(current_path);
 
     while (true) {
         var dir = std.Io.Dir.openDirAbsolute(io, current_path, .{}) catch break;
@@ -111,6 +116,23 @@ fn findWorkspaceRoot(allocator: std.mem.Allocator, io: std.Io) ![]const u8 {
     }
 
     return error.NoWorkspaceFound;
+}
+
+fn ensureNodeMtime(allocator: std.mem.Allocator, node: *parser.Node, mtime: i128) !void {
+    const mtime_ms = @divTrunc(mtime, 1000000);
+    const mtime_str = try std.fmt.allocPrint(allocator, "{d}", .{mtime_ms});
+    errdefer allocator.free(mtime_str);
+
+    const key = try allocator.dupe(u8, "mtime");
+    errdefer allocator.free(key);
+
+    if (node.metadata.getPtr("mtime")) |val_ptr| {
+        allocator.free(val_ptr.*);
+        val_ptr.* = mtime_str;
+        allocator.free(key);
+    } else {
+        try node.metadata.put(key, mtime_str);
+    }
 }
 
 fn runCommand(allocator: std.mem.Allocator, io: std.Io, cmd: []const u8, ws_root: []const u8, args: []const [:0]const u8) !void {
@@ -191,6 +213,7 @@ fn runCommand(allocator: std.mem.Allocator, io: std.Io, cmd: []const u8, ws_root
             }
 
             if (cached_entry) |ce| {
+                try ensureNodeMtime(allocator, &ce.node, mtime);
                 try kb_graph.addNode(try ce.node.clone(allocator));
                 try new_cache.entries.put(try allocator.dupe(u8, absolute_path), .{
                     .mtime = ce.mtime,
@@ -198,8 +221,9 @@ fn runCommand(allocator: std.mem.Allocator, io: std.Io, cmd: []const u8, ws_root
                     .node = try ce.node.clone(allocator),
                 });
             } else {
-                const node = try kb_parser.parseFile(absolute_path);
+                var node = try kb_parser.parseFile(absolute_path);
                 const hash = try calculateHash(io, absolute_path);
+                try ensureNodeMtime(allocator, &node, mtime);
                 try kb_graph.addNode(try node.clone(allocator));
                 try new_cache.entries.put(try allocator.dupe(u8, absolute_path), .{
                     .mtime = mtime,
@@ -309,7 +333,7 @@ fn runCommand(allocator: std.mem.Allocator, io: std.Io, cmd: []const u8, ws_root
         defer allocator.free(suggs);
         for (suggs) |s| std.debug.print("- [[{s}]] <-> [[{s}]] ({d:.4})\n", .{ s.source.title, s.target.title, s.score });
     } else if (std.mem.eql(u8, cmd, "visualize")) {
-        const json = try kb_graph.exportGraphJson();
+        const json = try kb_graph.exportGraphJson(ws_root);
         defer allocator.free(json);
         const json_path = try std.fs.path.join(allocator, &[_][]const u8{ ws_root, "graph.json" });
         defer allocator.free(json_path);
@@ -395,8 +419,352 @@ fn runCommand(allocator: std.mem.Allocator, io: std.Io, cmd: []const u8, ws_root
         } else {
             std.debug.print("Unknown mind subcommand: {s}. Use 'build' or 'query'.\n", .{subcmd});
         }
+    } else if (std.mem.eql(u8, cmd, "serve")) {
+        var port: u16 = 8080;
+        var j: usize = 0;
+        while (j < args.len) : (j += 1) {
+            if (std.mem.eql(u8, args[j], "--port") and j + 1 < args.len) {
+                port = std.fmt.parseInt(u16, args[j + 1], 10) catch |err| {
+                    std.debug.print("Invalid port number: {s} ({any})\n", .{ args[j + 1], err });
+                    return;
+                };
+                j += 1;
+            }
+        }
+        try startServer(allocator, io, ws_root, port);
     } else {
         std.debug.print("Unknown command: {s}\n{s}", .{ cmd, usage });
+    }
+}
+
+fn serveFile(writer: anytype, content_type: []const u8, content: []const u8) !void {
+    try writer.print(
+        "HTTP/1.1 200 OK\r\n" ++
+        "Content-Type: {s}; charset=utf-8\r\n" ++
+        "Content-Length: {d}\r\n" ++
+        "Connection: close\r\n" ++
+        "\r\n", .{ content_type, content.len });
+    try writer.writeAll(content);
+}
+
+fn serve404(writer: anytype) !void {
+    const body = "404 Not Found";
+    try writer.print(
+        "HTTP/1.1 404 Not Found\r\n" ++
+        "Content-Type: text/plain\r\n" ++
+        "Content-Length: {d}\r\n" ++
+        "Connection: close\r\n" ++
+        "\r\n", .{ body.len });
+    try writer.writeAll(body);
+}
+
+fn serve405(writer: anytype) !void {
+    const body = "405 Method Not Allowed";
+    try writer.print(
+        "HTTP/1.1 405 Method Not Allowed\r\n" ++
+        "Content-Type: text/plain\r\n" ++
+        "Content-Length: {d}\r\n" ++
+        "Connection: close\r\n" ++
+        "\r\n", .{ body.len });
+    try writer.writeAll(body);
+}
+
+fn serve500(writer: anytype) !void {
+    const body = "500 Internal Server Error";
+    try writer.print(
+        "HTTP/1.1 500 Internal Server Error\r\n" ++
+        "Content-Type: text/plain\r\n" ++
+        "Content-Length: {d}\r\n" ++
+        "Connection: close\r\n" ++
+        "\r\n", .{ body.len });
+    try writer.writeAll(body);
+}
+
+fn urlDecode(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
+    var result_list = try std.ArrayList(u8).initCapacity(allocator, input.len);
+    errdefer result_list.deinit(allocator);
+
+    var i: usize = 0;
+    while (i < input.len) {
+        if (input[i] == '%' and i + 2 < input.len) {
+            const hex_val = input[i + 1 .. i + 3];
+            const byte = std.fmt.parseInt(u8, hex_val, 16) catch |err| {
+                _ = err;
+                try result_list.append(allocator, '%');
+                i += 1;
+                continue;
+            };
+            try result_list.append(allocator, byte);
+            i += 3;
+        } else if (input[i] == '+') {
+            try result_list.append(allocator, ' ');
+            i += 1;
+        } else {
+            try result_list.append(allocator, input[i]);
+            i += 1;
+        }
+    }
+    return result_list.toOwnedSlice(allocator);
+}
+
+fn serveJsonError(writer: anytype, message: []const u8) !void {
+    try writer.print(
+        "HTTP/1.1 400 Bad Request\r\n" ++
+        "Content-Type: application/json; charset=utf-8\r\n" ++
+        "Connection: close\r\n" ++
+        "\r\n", .{});
+    try writer.print("{{\"error\": \"{s}\"}}\n", .{message});
+}
+
+fn startServer(allocator: std.mem.Allocator, io: std.Io, ws_root: []const u8, port: u16) !void {
+    const address = try std.Io.net.IpAddress.parse("127.0.0.1", port);
+    var server = try std.Io.net.IpAddress.listen(&address, io, .{ .reuse_address = true });
+    defer server.deinit(io);
+
+    std.debug.print("Linked-Mind API Server running at http://127.0.0.1:{d}/\n", .{port});
+    std.debug.print("Press Ctrl+C to stop.\n", .{});
+
+    while (true) {
+        var conn = server.accept(io) catch |err| {
+            log.err("Accept error: {any}", .{err});
+            continue;
+        };
+        defer conn.close(io);
+
+        var read_buf: [4096]u8 = undefined;
+        var conn_reader = conn.reader(io, &read_buf);
+        const req_len = conn_reader.interface.readSliceShort(&read_buf) catch |err| {
+            log.err("Read error: {any}", .{err});
+            continue;
+        };
+        if (req_len == 0) continue;
+
+        const req = read_buf[0..req_len];
+        var lines = std.mem.splitSequence(u8, req, "\r\n");
+        const first_line = lines.next() orelse continue;
+        var parts = std.mem.splitScalar(u8, first_line, ' ');
+        const method = parts.next() orelse continue;
+        const path = parts.next() orelse continue;
+
+        var write_buf: [1024]u8 = undefined;
+        var conn_writer = conn.writer(io, &write_buf);
+
+        if (!std.mem.eql(u8, method, "GET")) {
+            serve405(&conn_writer.interface) catch |err| {
+                log.err("Failed to serve 405 response: {any}", .{err});
+            };
+            conn_writer.interface.flush() catch |err| {
+                log.err("Failed to flush connection writer: {any}", .{err});
+            };
+            continue;
+        }
+
+        const clean_path = std.mem.trim(u8, path, " ");
+        var path_parts = std.mem.splitScalar(u8, clean_path, '?');
+        const req_path = path_parts.next() orelse clean_path;
+
+        if (std.mem.startsWith(u8, req_path, "/api/query")) {
+            var question_opt: ?[]const u8 = null;
+            if (std.mem.find(u8, clean_path, "?q=")) |idx| {
+                question_opt = clean_path[idx + 3 ..];
+            } else if (std.mem.find(u8, clean_path, "&q=")) |idx| {
+                question_opt = clean_path[idx + 3 ..];
+            }
+
+            if (question_opt) |q_raw| {
+                var q_str = q_raw;
+                if (std.mem.findScalar(u8, q_str, '&')) |amp_idx| {
+                    q_str = q_str[0..amp_idx];
+                }
+
+                const q_decoded = urlDecode(allocator, q_str) catch |err| {
+                    log.err("URL decode failed: {any}", .{err});
+                    try serveJsonError(&conn_writer.interface, "URL decode failed.");
+                    conn_writer.interface.flush() catch |flush_err| {
+                        log.err("Failed to flush error response: {any}", .{flush_err});
+                    };
+                    continue;
+                };
+                defer allocator.free(q_decoded);
+
+                const map_path = try std.fs.path.join(allocator, &.{ ws_root, "mind-map.json" });
+                defer allocator.free(map_path);
+
+                const json_str = std.Io.Dir.cwd().readFileAlloc(io, map_path, allocator, .unlimited) catch |err| {
+                    log.err("No mind-map found at {s}: {any}", .{ map_path, err });
+                    try serveJsonError(&conn_writer.interface, "No mind-map found. Run 'li mind build <file>' first.");
+                    conn_writer.interface.flush() catch |flush_err| {
+                        log.err("Failed to flush error response: {any}", .{flush_err});
+                    };
+                    continue;
+                };
+                defer allocator.free(json_str);
+
+                var mind_map = serialize.deserializeFromJson(allocator, json_str) catch |err| {
+                    log.err("Failed to deserialize mind-map: {any}", .{err});
+                    try serveJsonError(&conn_writer.interface, "Failed to parse mind-map JSON.");
+                    conn_writer.interface.flush() catch |flush_err| {
+                        log.err("Failed to flush error response: {any}", .{flush_err});
+                    };
+                    continue;
+                };
+                defer mind_map.deinit(allocator);
+
+                const doc = std.Io.Dir.cwd().readFileAlloc(io, mind_map.title, allocator, .unlimited) catch |err| {
+                    log.err("Could not read source document '{s}': {any}", .{ mind_map.title, err });
+                    try serveJsonError(&conn_writer.interface, "Could not read source document.");
+                    conn_writer.interface.flush() catch |flush_err| {
+                        log.err("Failed to flush error response: {any}", .{flush_err});
+                    };
+                    continue;
+                };
+                defer allocator.free(doc);
+
+                const config = llm_mod.LLMConfig.init();
+                var llm_svc = llm_mod.LLMService.init(allocator, io, config);
+                var engine = query_mod.QueryEngine.init(allocator);
+                defer engine.deinit(allocator);
+
+                var result = engine.query(&mind_map, doc, q_decoded, &llm_svc) catch |err| {
+                    log.err("Query failed: {any}", .{err});
+                    if (err == error.ApiKeyMissing) {
+                        try serveJsonError(&conn_writer.interface, "OPENAI_API_KEY environment variable is not set.");
+                    } else {
+                        try serveJsonError(&conn_writer.interface, "AI Query failed. Check API key and network.");
+                    }
+                    conn_writer.interface.flush() catch |flush_err| {
+                        log.err("Failed to flush error response: {any}", .{flush_err});
+                    };
+                    continue;
+                };
+                defer result.deinit(allocator);
+
+                const ResponseObj = struct {
+                    answer: []const u8,
+                    node_ids: []const []const u8,
+                };
+                const resp_obj: ResponseObj = .{
+                    .answer = result.answer,
+                    .node_ids = result.node_ids,
+                };
+
+                var out = std.Io.Writer.Allocating.init(allocator);
+                defer out.deinit();
+                var stringify: std.json.Stringify = .{ .writer = &out.writer, .options = .{} };
+                try stringify.write(resp_obj);
+
+                const response_json = out.written();
+                try serveFile(&conn_writer.interface, "application/json", response_json);
+            } else {
+                try serveJsonError(&conn_writer.interface, "Missing query parameter 'q'.");
+            }
+            conn_writer.interface.flush() catch |err| {
+                log.err("Failed to flush connection writer: {any}", .{err});
+            };
+            continue;
+        }
+
+        const filename: ?[]const u8 = if (std.mem.eql(u8, req_path, "/") or std.mem.eql(u8, req_path, "/index.html"))
+            "index.html"
+        else if (std.mem.eql(u8, req_path, "/graph.json"))
+            "graph.json"
+        else if (std.mem.eql(u8, req_path, "/llm_knowledge.md"))
+            "llm_knowledge.md"
+        else if (std.mem.eql(u8, req_path, "/map.json"))
+            "map.json"
+        else if (std.mem.eql(u8, req_path, "/map.toon"))
+            "map.toon"
+        else if (std.mem.eql(u8, req_path, "/map.csv"))
+            "map.csv"
+        else
+            null;
+
+        if (filename) |fname| {
+            const content_type = if (std.mem.endsWith(u8, fname, ".html"))
+                "text/html"
+            else if (std.mem.endsWith(u8, fname, ".json"))
+                "application/json"
+            else if (std.mem.endsWith(u8, fname, ".md"))
+                "text/markdown"
+            else if (std.mem.endsWith(u8, fname, ".toon"))
+                "text/plain"
+            else if (std.mem.endsWith(u8, fname, ".csv"))
+                "text/csv"
+            else
+                "application/octet-stream";
+
+            const full_path = try std.fs.path.join(allocator, &.{ ws_root, fname });
+            defer allocator.free(full_path);
+
+            if (std.Io.Dir.cwd().readFileAlloc(io, full_path, allocator, .unlimited)) |content| {
+                defer allocator.free(content);
+                serveFile(&conn_writer.interface, content_type, content) catch |err| {
+                    log.err("Serve error: {any}", .{err});
+                };
+            } else |err| {
+                if (err == error.FileNotFound) {
+                    serve404(&conn_writer.interface) catch |serve_err| {
+                        log.err("Failed to serve 404 response: {any}", .{serve_err});
+                    };
+                } else {
+                    log.err("Read file error: {any}", .{err});
+                    serve500(&conn_writer.interface) catch |serve_err| {
+                        log.err("Failed to serve 500 response: {any}", .{serve_err});
+                    };
+                }
+            }
+        } else {
+            var rel_path = req_path;
+            if (rel_path.len > 0 and rel_path[0] == '/') {
+                rel_path = rel_path[1..];
+            }
+
+            const is_safe = std.mem.indexOf(u8, rel_path, "..") == null;
+            const is_supported = std.mem.endsWith(u8, rel_path, ".md") or
+                std.mem.endsWith(u8, rel_path, ".org") or
+                std.mem.endsWith(u8, rel_path, ".txt") or
+                std.mem.endsWith(u8, rel_path, ".pdf");
+
+            if (is_safe and is_supported) {
+                const content_type = if (std.mem.endsWith(u8, rel_path, ".md"))
+                    "text/markdown"
+                else if (std.mem.endsWith(u8, rel_path, ".org") or std.mem.endsWith(u8, rel_path, ".txt"))
+                    "text/plain"
+                else if (std.mem.endsWith(u8, rel_path, ".pdf"))
+                    "application/pdf"
+                else
+                    "application/octet-stream";
+
+                const full_path = try std.fs.path.join(allocator, &.{ ws_root, rel_path });
+                defer allocator.free(full_path);
+
+                if (std.Io.Dir.cwd().readFileAlloc(io, full_path, allocator, .unlimited)) |content| {
+                    defer allocator.free(content);
+                    serveFile(&conn_writer.interface, content_type, content) catch |err| {
+                        log.err("Serve error for {s}: {any}", .{ rel_path, err });
+                    };
+                } else |err| {
+                    if (err == error.FileNotFound) {
+                        serve404(&conn_writer.interface) catch |serve_err| {
+                            log.err("Failed to serve 404 response: {any}", .{serve_err});
+                        };
+                    } else {
+                        log.err("Read file error for {s}: {any}", .{ rel_path, err });
+                        serve500(&conn_writer.interface) catch |serve_err| {
+                            log.err("Failed to serve 500 response: {any}", .{serve_err});
+                        };
+                    }
+                }
+            } else {
+                serve404(&conn_writer.interface) catch |serve_err| {
+                    log.err("Failed to serve 404 response: {any}", .{serve_err});
+                };
+            }
+        }
+
+        conn_writer.interface.flush() catch |err| {
+            log.err("Failed to flush connection writer: {any}", .{err});
+        };
     }
 }
 
@@ -471,6 +839,7 @@ fn updateGraphAndExport(allocator: std.mem.Allocator, io: std.Io, ws_root: []con
             }
 
             if (cached_entry) |ce| {
+                try ensureNodeMtime(allocator, &ce.node, mtime);
                 try kb_graph.addNode(try ce.node.clone(allocator));
                 try new_cache.entries.put(try allocator.dupe(u8, absolute_path), .{
                     .mtime = ce.mtime,
@@ -487,6 +856,7 @@ fn updateGraphAndExport(allocator: std.mem.Allocator, io: std.Io, ws_root: []con
                     if (err == error.FileNotFound) continue;
                     return err;
                 };
+                try ensureNodeMtime(allocator, &node, mtime);
                 try kb_graph.addNode(try node.clone(allocator));
                 try new_cache.entries.put(try allocator.dupe(u8, absolute_path), .{
                     .mtime = mtime,
@@ -503,7 +873,7 @@ fn updateGraphAndExport(allocator: std.mem.Allocator, io: std.Io, ws_root: []con
     var pr_scores = try kb_graph.computePageRank(10);
     defer pr_scores.deinit();
 
-    const json = try kb_graph.exportGraphJson();
+    const json = try kb_graph.exportGraphJson(ws_root);
     defer allocator.free(json);
     const json_path = try std.fs.path.join(allocator, &[_][]const u8{ ws_root, "graph.json" });
     defer allocator.free(json_path);
@@ -769,35 +1139,40 @@ fn calculateHash(io: std.Io, path: []const u8) ![32]u8 {
 }
 
 // Helper: create a temp dir, return its path, caller must clean up
-fn createTempDir(allocator: std.mem.Allocator) !struct { dir: std.fs.Dir, path: []const u8 } {
-    const base = try std.fs.cwd().makeOpenPath("/tmp", .{});
-    defer base.close();
-    var buf: [128]u8 = undefined;
-    const name = try std.fmt.bufPrint(&buf, "li-test-{d}", .{std.time.milliTimestamp()});
-    const dir = try base.makeOpenPath(name, .{});
+fn createTempDir(allocator: std.mem.Allocator, io: std.Io) !struct { dir: std.Io.Dir, path: []const u8 } {
+    var base = try std.Io.Dir.openDirAbsolute(io, "/tmp", .{});
+    defer base.close(io);
+    var rand_bytes: [8]u8 = undefined;
+    try io.randomSecure(&rand_bytes);
+    const hex_name = std.fmt.bytesToHex(rand_bytes, .lower);
+    var buf: [32]u8 = undefined;
+    const name = try std.fmt.bufPrint(&buf, "li-test-{s}", .{&hex_name});
+    const dir = try base.createDirPathOpen(io, name, .{});
     const path = try std.fs.path.join(allocator, &.{ "/tmp", name });
     return .{ .dir = dir, .path = path };
 }
 
 test "li: initWorkspace creates .li directory" {
     const allocator = std.testing.allocator;
-    const tmp = try createTempDir(allocator);
+    var test_threaded_io = std.Io.Threaded.global_single_threaded;
+    const io = test_threaded_io.io();
+
+    const tmp = try createTempDir(allocator, io);
     defer allocator.free(tmp.path);
     defer {
-        var tmp_dir = std.fs.openDirAbsolute("/tmp", .{}) catch unreachable;
-        var li_dir = tmp_dir.openDir(tmp.path[5..], .{ .iterate = true }) catch unreachable;
-        li_dir.deleteTree(".li") catch {};
-        li_dir.close();
-        tmp_dir.deleteTree(tmp.path[5..]) catch {};
-        tmp_dir.close();
+        if (std.Io.Dir.openDirAbsolute(io, "/tmp", .{})) |base| {
+            var mut_base = base;
+            defer mut_base.close(io);
+            mut_base.deleteTree(io, tmp.path[5..]) catch {};
+        } else |_| {}
     }
 
-    try initWorkspace(allocator, tmp.path);
+    try initWorkspace(allocator, io, tmp.path);
 
     // Verify .li exists
-    var dir = try std.fs.openDirAbsolute(tmp.path, .{});
-    defer dir.close();
-    dir.access(".li", .{}) catch |err| {
+    var dir = try std.Io.Dir.cwd().openDir(io, tmp.path, .{});
+    defer dir.close(io);
+    dir.access(io, ".li", .{}) catch |err| {
         std.debug.print(".li dir not found after init: {any}\n", .{err});
         return err;
     };
@@ -805,110 +1180,126 @@ test "li: initWorkspace creates .li directory" {
 
 test "li: initWorkspace reinit on existing .li returns ok" {
     const allocator = std.testing.allocator;
-    const tmp = try createTempDir(allocator);
+    var test_threaded_io = std.Io.Threaded.global_single_threaded;
+    const io = test_threaded_io.io();
+
+    const tmp = try createTempDir(allocator, io);
     defer allocator.free(tmp.path);
     defer {
-        var tmp_dir = std.fs.openDirAbsolute("/tmp", .{}) catch unreachable;
-        var li_dir = tmp_dir.openDir(tmp.path[5..], .{ .iterate = true }) catch unreachable;
-        li_dir.deleteTree(".li") catch {};
-        li_dir.close();
-        tmp_dir.deleteTree(tmp.path[5..]) catch {};
-        tmp_dir.close();
+        if (std.Io.Dir.openDirAbsolute(io, "/tmp", .{})) |base| {
+            var mut_base = base;
+            defer mut_base.close(io);
+            mut_base.deleteTree(io, tmp.path[5..]) catch {};
+        } else |_| {}
     }
 
     // First init
-    try initWorkspace(allocator, tmp.path);
+    try initWorkspace(allocator, io, tmp.path);
     // Second init should succeed (reinit)
-    try initWorkspace(allocator, tmp.path);
+    try initWorkspace(allocator, io, tmp.path);
 }
 
 test "li: findWorkspaceRoot finds .li in current dir" {
     const allocator = std.testing.allocator;
-    const tmp = try createTempDir(allocator);
+    var test_threaded_io = std.Io.Threaded.global_single_threaded;
+    const io = test_threaded_io.io();
+
+    const tmp = try createTempDir(allocator, io);
     defer allocator.free(tmp.path);
     defer {
-        var tmp_dir = std.fs.openDirAbsolute("/tmp", .{}) catch unreachable;
-        var li_dir = tmp_dir.openDir(tmp.path[5..], .{ .iterate = true }) catch unreachable;
-        li_dir.deleteTree(".li") catch {};
-        li_dir.close();
-        tmp_dir.deleteTree(tmp.path[5..]) catch {};
-        tmp_dir.close();
+        if (std.Io.Dir.openDirAbsolute(io, "/tmp", .{})) |base| {
+            var mut_base = base;
+            defer mut_base.close(io);
+            mut_base.deleteTree(io, tmp.path[5..]) catch {};
+        } else |_| {}
     }
 
     // Create .li in temp dir
-    try initWorkspace(allocator, tmp.path);
+    try initWorkspace(allocator, io, tmp.path);
 
-    // cd into temp dir and find workspace root
-    const original_dir = try std.fs.cwd().realpathAlloc(allocator, ".");
+    const original_dir = try std.Io.Dir.cwd().realPathFileAlloc(io, ".", allocator);
     defer allocator.free(original_dir);
 
-    var tmp_dir = try std.fs.openDirAbsolute(tmp.path, .{});
-    defer tmp_dir.close();
-    // Change cwd to temp dir
-    try tmp_dir.setAsCwd();
+    var tmp_dir = try std.Io.Dir.cwd().openDir(io, tmp.path, .{});
+    defer tmp_dir.close(io);
+
+    try std.process.setCurrentDir(io, tmp_dir);
     defer {
-        var orig = std.fs.openDirAbsolute(original_dir, .{}) catch unreachable;
-        orig.setAsCwd() catch {};
-        orig.close();
+        var orig = std.Io.Dir.openDirAbsolute(io, original_dir, .{}) catch unreachable;
+        std.process.setCurrentDir(io, orig) catch {};
+        orig.close(io);
     }
 
-    const root = try findWorkspaceRoot(allocator);
+    const root = try findWorkspaceRoot(allocator, io);
     defer allocator.free(root);
 
-    // Root should match tmp.path (or be a parent containing it)
-    try std.testing.expect(std.mem.indexOf(u8, tmp.path, root) != null or std.mem.eql(u8, root, tmp.path));
+    const real_tmp_path = try std.Io.Dir.cwd().realPathFileAlloc(io, tmp.path, allocator);
+    defer allocator.free(real_tmp_path);
+
+    try std.testing.expectEqualStrings(real_tmp_path, root);
 }
 
 test "li: findWorkspaceRoot returns NoWorkspaceFound when no .li exists" {
     const allocator = std.testing.allocator;
-    const tmp = try createTempDir(allocator);
+    var test_threaded_io = std.Io.Threaded.global_single_threaded;
+    const io = test_threaded_io.io();
+
+    const tmp = try createTempDir(allocator, io);
     defer allocator.free(tmp.path);
     defer {
-        var tmp_dir = std.fs.openDirAbsolute("/tmp", .{}) catch unreachable;
-        tmp_dir.deleteTree(tmp.path[5..]) catch {};
-        tmp_dir.close();
+        if (std.Io.Dir.openDirAbsolute(io, "/tmp", .{})) |base| {
+            var mut_base = base;
+            defer mut_base.close(io);
+            mut_base.deleteTree(io, tmp.path[5..]) catch {};
+        } else |_| {}
     }
 
-    const original_dir = try std.fs.cwd().realpathAlloc(allocator, ".");
+    const original_dir = try std.Io.Dir.cwd().realPathFileAlloc(io, ".", allocator);
     defer allocator.free(original_dir);
 
-    var tmp_dir = try std.fs.openDirAbsolute(tmp.path, .{});
-    defer tmp_dir.close();
-    try tmp_dir.setAsCwd();
+    var tmp_dir = try std.Io.Dir.cwd().openDir(io, tmp.path, .{});
+    defer tmp_dir.close(io);
+
+    try std.process.setCurrentDir(io, tmp_dir);
     defer {
-        var orig = std.fs.openDirAbsolute(original_dir, .{}) catch unreachable;
-        orig.setAsCwd() catch {};
-        orig.close();
+        var orig = std.Io.Dir.openDirAbsolute(io, original_dir, .{}) catch unreachable;
+        std.process.setCurrentDir(io, orig) catch {};
+        orig.close(io);
     }
 
-    const result = findWorkspaceRoot(allocator);
+    const result = findWorkspaceRoot(allocator, io);
     try std.testing.expectError(error.NoWorkspaceFound, result);
 }
 
 test "li: calculateHash returns consistent SHA256" {
     const allocator = std.testing.allocator;
-    const tmp = try createTempDir(allocator);
+    var test_threaded_io = std.Io.Threaded.global_single_threaded;
+    const io = test_threaded_io.io();
+
+    const tmp = try createTempDir(allocator, io);
     defer allocator.free(tmp.path);
     defer {
-        var tmp_dir = std.fs.openDirAbsolute("/tmp", .{}) catch unreachable;
-        tmp_dir.deleteTree(tmp.path[5..]) catch {};
-        tmp_dir.close();
+        if (std.Io.Dir.openDirAbsolute(io, "/tmp", .{})) |base| {
+            var mut_base = base;
+            defer mut_base.close(io);
+            mut_base.deleteTree(io, tmp.path[5..]) catch {};
+        } else |_| {}
     }
 
     // Write known content to a file
     const file_path = try std.fs.path.join(allocator, &.{ tmp.path, "test.txt" });
     defer allocator.free(file_path);
-    try std.fs.cwd().writeFile(.{ .sub_path = file_path, .data = "hello world" });
+    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = file_path, .data = "hello world" });
 
-    const hash1 = try calculateHash(file_path);
-    const hash2 = try calculateHash(file_path);
+    const hash1 = try calculateHash(io, file_path);
+    const hash2 = try calculateHash(io, file_path);
 
     // Same content must produce same hash
     try std.testing.expect(std.mem.eql(u8, &hash1, &hash2));
 
     // Write different content
-    try std.fs.cwd().writeFile(.{ .sub_path = file_path, .data = "different content" });
-    const hash3 = try calculateHash(file_path);
+    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = file_path, .data = "different content" });
+    const hash3 = try calculateHash(io, file_path);
 
     // Different content must produce different hash
     try std.testing.expect(!std.mem.eql(u8, &hash1, &hash3));
@@ -916,44 +1307,99 @@ test "li: calculateHash returns consistent SHA256" {
 
 test "li: findWorkspaceRoot finds .li in parent directory" {
     const allocator = std.testing.allocator;
-    const tmp = try createTempDir(allocator);
+    var test_threaded_io = std.Io.Threaded.global_single_threaded;
+    const io = test_threaded_io.io();
+
+    const tmp = try createTempDir(allocator, io);
     defer allocator.free(tmp.path);
     defer {
-        var tmp_dir = std.fs.openDirAbsolute("/tmp", .{}) catch unreachable;
-        var li_dir = tmp_dir.openDir(tmp.path[5..], .{ .iterate = true }) catch unreachable;
-        li_dir.deleteTree(".li") catch {};
-        li_dir.deleteTree("subdir") catch {};
-        li_dir.close();
-        tmp_dir.deleteTree(tmp.path[5..]) catch {};
-        tmp_dir.close();
+        if (std.Io.Dir.openDirAbsolute(io, "/tmp", .{})) |base| {
+            var mut_base = base;
+            defer mut_base.close(io);
+            mut_base.deleteTree(io, tmp.path[5..]) catch {};
+        } else |_| {}
     }
 
     // Create .li in temp dir (parent)
-    try initWorkspace(allocator, tmp.path);
+    try initWorkspace(allocator, io, tmp.path);
 
     // Create subdir inside temp dir
     const subdir_path = try std.fs.path.join(allocator, &.{ tmp.path, "subdir" });
     defer allocator.free(subdir_path);
-    var sub = try std.fs.openDirAbsolute(tmp.path, .{});
-    defer sub.close();
-    try sub.makePath("subdir");
+    var sub = try std.Io.Dir.cwd().openDir(io, tmp.path, .{});
+    defer sub.close(io);
+    try sub.createDir(io, "subdir", .default_dir);
 
     // cd into subdir and find workspace root (should find .li in parent)
-    const original_dir = try std.fs.cwd().realpathAlloc(allocator, ".");
+    const original_dir = try std.Io.Dir.cwd().realPathFileAlloc(io, ".", allocator);
     defer allocator.free(original_dir);
 
-    var subdir = try std.fs.openDirAbsolute(subdir_path, .{});
-    defer subdir.close();
-    try subdir.setAsCwd();
+    var subdir = try std.Io.Dir.cwd().openDir(io, subdir_path, .{});
+    defer subdir.close(io);
+
+    try std.process.setCurrentDir(io, subdir);
     defer {
-        var orig = std.fs.openDirAbsolute(original_dir, .{}) catch unreachable;
-        orig.setAsCwd() catch {};
-        orig.close();
+        var orig = std.Io.Dir.openDirAbsolute(io, original_dir, .{}) catch unreachable;
+        std.process.setCurrentDir(io, orig) catch {};
+        orig.close(io);
     }
 
-    const root = try findWorkspaceRoot(allocator);
+    const root = try findWorkspaceRoot(allocator, io);
     defer allocator.free(root);
 
-    // Root should be the parent (tmp.path)
-    try std.testing.expect(std.mem.eql(u8, root, tmp.path));
+    const real_tmp_path = try std.Io.Dir.cwd().realPathFileAlloc(io, tmp.path, allocator);
+    defer allocator.free(real_tmp_path);
+
+    try std.testing.expectEqualStrings(real_tmp_path, root);
 }
+
+test "li: serve responses" {
+    const allocator = std.testing.allocator;
+
+    // Test serveFile
+    {
+        var w: std.Io.Writer.Allocating = .init(allocator);
+        defer w.deinit();
+        try serveFile(&w.writer, "text/plain", "hello workspace");
+        const out = try w.toOwnedSlice();
+        defer allocator.free(out);
+        try std.testing.expect(std.mem.indexOf(u8, out, "HTTP/1.1 200 OK") != null);
+        try std.testing.expect(std.mem.indexOf(u8, out, "Content-Type: text/plain; charset=utf-8") != null);
+        try std.testing.expect(std.mem.indexOf(u8, out, "Content-Length: 15") != null);
+        try std.testing.expect(std.mem.indexOf(u8, out, "hello workspace") != null);
+    }
+
+    // Test serve404
+    {
+        var w: std.Io.Writer.Allocating = .init(allocator);
+        defer w.deinit();
+        try serve404(&w.writer);
+        const out = try w.toOwnedSlice();
+        defer allocator.free(out);
+        try std.testing.expect(std.mem.indexOf(u8, out, "HTTP/1.1 404 Not Found") != null);
+        try std.testing.expect(std.mem.indexOf(u8, out, "404 Not Found") != null);
+    }
+
+    // Test serve405
+    {
+        var w: std.Io.Writer.Allocating = .init(allocator);
+        defer w.deinit();
+        try serve405(&w.writer);
+        const out = try w.toOwnedSlice();
+        defer allocator.free(out);
+        try std.testing.expect(std.mem.indexOf(u8, out, "HTTP/1.1 405 Method Not Allowed") != null);
+        try std.testing.expect(std.mem.indexOf(u8, out, "405 Method Not Allowed") != null);
+    }
+
+    // Test serve500
+    {
+        var w: std.Io.Writer.Allocating = .init(allocator);
+        defer w.deinit();
+        try serve500(&w.writer);
+        const out = try w.toOwnedSlice();
+        defer allocator.free(out);
+        try std.testing.expect(std.mem.indexOf(u8, out, "HTTP/1.1 500 Internal Server Error") != null);
+        try std.testing.expect(std.mem.indexOf(u8, out, "500 Internal Server Error") != null);
+    }
+}
+

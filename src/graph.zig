@@ -836,12 +836,14 @@ pub const Graph = struct {
         return self.allocator.dupe(LinkSuggestion, suggestions.items[0..real_limit]);
     }
 
-    pub fn exportGraphJson(self: *Graph) ![]const u8 {
+    pub fn exportGraphJson(self: *Graph, ws_root: ?[]const u8) ![]const u8 {
         const NodeObj = struct {
             id: []const u8,
             title: []const u8,
             group: usize,
             rank: f32,
+            path: []const u8,
+            mtime: i64,
         };
 
         const LinkObj = struct {
@@ -885,11 +887,29 @@ pub const Graph = struct {
             const group = node_to_group.get(node) orelse 0;
             const rank = pr_scores.get(node.title) orelse 0.0;
 
+            var path_val = node.path;
+            if (ws_root) |root| {
+                if (std.mem.startsWith(u8, node.path, root)) {
+                    var rel = node.path[root.len..];
+                    if (rel.len > 0 and rel[0] == '/') {
+                        rel = rel[1..];
+                    }
+                    path_val = rel;
+                }
+            }
+
+            var mtime: i64 = 0;
+            if (node.metadata.get("mtime")) |mtime_str| {
+                mtime = std.fmt.parseInt(i64, mtime_str, 10) catch 0;
+            }
+
             try nodes_arr.append(self.allocator, .{
                 .id = node.title,
                 .title = node.title,
                 .group = group,
                 .rank = rank,
+                .path = path_val,
+                .mtime = mtime,
             });
 
             for (node.links.items) |link| {
@@ -1445,7 +1465,7 @@ test "Graph: exportGraphJson produces valid JSON" {
 
     try graph.resolveBacklinks();
 
-    const json = try graph.exportGraphJson();
+    const json = try graph.exportGraphJson(null);
     defer allocator.free(json);
 
     // Verify JSON structure

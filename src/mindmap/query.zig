@@ -21,6 +21,123 @@ pub const QueryResult = struct {
     }
 };
 
+const TarjanContext = struct {
+    allocator: std.mem.Allocator,
+    flat_map: *const std.StringHashMap(*const ConceptNode),
+    index: usize,
+    indices: std.StringHashMap(usize),
+    lowlink: std.StringHashMap(usize),
+    on_stack: std.StringHashMap(bool),
+    stack: std.ArrayList([]const u8),
+    sccs: std.ArrayList(std.ArrayList([]const u8)),
+
+    fn init(allocator: std.mem.Allocator, flat_map: *const std.StringHashMap(*const ConceptNode)) TarjanContext {
+        return .{
+            .allocator = allocator,
+            .flat_map = flat_map,
+            .index = 0,
+            .indices = std.StringHashMap(usize).init(allocator),
+            .lowlink = std.StringHashMap(usize).init(allocator),
+            .on_stack = std.StringHashMap(bool).init(allocator),
+            .stack = .empty,
+            .sccs = .empty,
+        };
+    }
+
+    fn deinit(self: *TarjanContext) void {
+        self.indices.deinit();
+        self.lowlink.deinit();
+        self.on_stack.deinit();
+        self.stack.deinit(self.allocator);
+        self.sccs.deinit(self.allocator);
+        self.* = undefined;
+    }
+
+    fn run(self: *TarjanContext) !void {
+        var it = self.flat_map.keyIterator();
+        while (it.next()) |node_id_ptr| {
+            const node_id = node_id_ptr.*;
+            if (!self.indices.contains(node_id)) {
+                try self.strongConnect(node_id);
+            }
+        }
+    }
+
+    fn strongConnect(self: *TarjanContext, v: []const u8) !void {
+        try self.indices.put(v, self.index);
+        try self.lowlink.put(v, self.index);
+        self.index += 1;
+        try self.stack.append(self.allocator, v);
+        try self.on_stack.put(v, true);
+
+        if (self.flat_map.get(v)) |node| {
+            if (node.children) |*ch| {
+                for (ch.items) |*child| {
+                    const w = child.id;
+                    if (!self.indices.contains(w)) {
+                        try self.strongConnect(w);
+                        const v_low = self.lowlink.get(v).?;
+                        const w_low = self.lowlink.get(w).?;
+                        try self.lowlink.put(v, @min(v_low, w_low));
+                    } else if (self.on_stack.get(w) orelse false) {
+                        const v_low = self.lowlink.get(v).?;
+                        const w_index = self.indices.get(w).?;
+                        try self.lowlink.put(v, @min(v_low, w_index));
+                    }
+                }
+            }
+            if (node.causal_links) |*cl| {
+                for (cl.items) |*link| {
+                    const w = link.target;
+                    if (self.flat_map.contains(w)) {
+                        if (!self.indices.contains(w)) {
+                            try self.strongConnect(w);
+                            const v_low = self.lowlink.get(v).?;
+                            const w_low = self.lowlink.get(w).?;
+                            try self.lowlink.put(v, @min(v_low, w_low));
+                        } else if (self.on_stack.get(w) orelse false) {
+                            const v_low = self.lowlink.get(v).?;
+                            const w_index = self.indices.get(w).?;
+                            try self.lowlink.put(v, @min(v_low, w_index));
+                        }
+                    }
+                }
+            }
+        }
+
+        if ((self.lowlink.get(v).?) == (self.indices.get(v).?)) {
+            var scc: std.ArrayList([]const u8) = .empty;
+            errdefer scc.deinit(self.allocator);
+            while (true) {
+                const w = self.stack.pop().?;
+                try self.on_stack.put(w, false);
+                try scc.append(self.allocator, w);
+                if (std.mem.eql(u8, w, v)) break;
+            }
+            var is_cycle = scc.items.len > 1;
+            if (scc.items.len == 1) {
+                const node_id = scc.items[0];
+                if (self.flat_map.get(node_id)) |node| {
+                    if (node.causal_links) |*cl| {
+                        for (cl.items) |*link| {
+                            if (std.mem.eql(u8, link.target, node_id)) {
+                                is_cycle = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (is_cycle) {
+                try self.sccs.append(self.allocator, scc);
+            } else {
+                scc.deinit(self.allocator);
+            }
+        }
+    }
+};
+
 pub const QueryEngine = struct {
     allocator: std.mem.Allocator,
 
@@ -92,12 +209,187 @@ pub const QueryEngine = struct {
 
         return line_buf.toOwnedSlice(alloc);
     }
+
+    fn buildFlatNodeMap(self: *QueryEngine, mindmap: *const MindMap, map: *std.StringHashMap(*const ConceptNode)) !void {
+        for (mindmap.nodes.items) |*node| {
+            try self.collectNodesRecursive(node, map);
+        }
+    }
+
+    fn collectNodesRecursive(self: *QueryEngine, node: *const ConceptNode, map: *std.StringHashMap(*const ConceptNode)) !void {
+        try map.put(node.id, node);
+        if (node.children) |*ch| {
+            for (ch.items) |*child| {
+                try self.collectNodesRecursive(child, map);
+            }
+        }
+    }
+
+    pub fn findStartNodes(
+        self: *QueryEngine,
+        flat_map: *const std.StringHashMap(*const ConceptNode),
+        question: []const u8,
+    ) ![]const []const u8 {
+        var starts: std.ArrayList([]const u8) = .empty;
+        errdefer {
+            for (starts.items) |id| self.allocator.free(id);
+            starts.deinit(self.allocator);
+        }
+
+        const question_lower = try self.allocator.alloc(u8, question.len);
+        defer self.allocator.free(question_lower);
+        for (question, 0..) |c, idx| question_lower[idx] = std.ascii.toLower(c);
+
+        var it = flat_map.iterator();
+        while (it.next()) |entry| {
+            const node = entry.value_ptr.*;
+
+            const title_lower = try self.allocator.alloc(u8, node.title.len);
+            defer self.allocator.free(title_lower);
+            for (node.title, 0..) |c, idx| title_lower[idx] = std.ascii.toLower(c);
+
+            if (std.mem.indexOf(u8, question_lower, title_lower) != null or
+                std.mem.indexOf(u8, question_lower, node.id) != null) {
+                try starts.append(self.allocator, try self.allocator.dupe(u8, node.id));
+            }
+        }
+
+        return starts.toOwnedSlice(self.allocator);
+    }
+
+    pub fn traverseGraph(
+        self: *QueryEngine,
+        mindmap: *const MindMap,
+        flat_map: *const std.StringHashMap(*const ConceptNode),
+        start_nodes: []const []const u8,
+        max_depth: usize,
+    ) ![]*const ConceptNode {
+        var visited = std.StringHashMap(void).init(self.allocator);
+        defer visited.deinit();
+
+        var result: std.ArrayList(*const ConceptNode) = .empty;
+        errdefer result.deinit(self.allocator);
+
+        var tarjan = TarjanContext.init(self.allocator, flat_map);
+        defer {
+            for (tarjan.sccs.items) |*scc| {
+                scc.deinit(self.allocator);
+            }
+            tarjan.deinit();
+        }
+        try tarjan.run();
+
+        var node_to_cycle = std.StringHashMap(usize).init(self.allocator);
+        defer node_to_cycle.deinit();
+
+        for (tarjan.sccs.items, 0..) |scc, scc_idx| {
+            for (scc.items) |node_id| {
+                try node_to_cycle.put(node_id, scc_idx);
+            }
+        }
+
+        var starts: std.ArrayList([]const u8) = .empty;
+        defer {
+            for (starts.items) |id| self.allocator.free(id);
+            starts.deinit(self.allocator);
+        }
+
+        if (start_nodes.len > 0) {
+            for (start_nodes) |id| {
+                try starts.append(self.allocator, try self.allocator.dupe(u8, id));
+            }
+        } else {
+            for (mindmap.nodes.items) |*node| {
+                try starts.append(self.allocator, try self.allocator.dupe(u8, node.id));
+            }
+        }
+
+        for (starts.items) |start_id| {
+            try self.traverseDfs(flat_map, &node_to_cycle, tarjan.sccs.items, start_id, 0, max_depth, &visited, &result);
+        }
+
+        return result.toOwnedSlice(self.allocator);
+    }
+
+    fn traverseDfs(
+        self: *QueryEngine,
+        flat_map: *const std.StringHashMap(*const ConceptNode),
+        node_to_cycle: *const std.StringHashMap(usize),
+        sccs: []const std.ArrayList([]const u8),
+        node_id: []const u8,
+        depth: usize,
+        max_depth: usize,
+        visited: *std.StringHashMap(void),
+        result: *std.ArrayList(*const ConceptNode),
+    ) !void {
+        if (depth > max_depth) return;
+        if (visited.contains(node_id)) return;
+
+        const node = flat_map.get(node_id) orelse return;
+
+        if (node_to_cycle.get(node_id)) |scc_idx| {
+            const scc = sccs[scc_idx];
+
+            for (scc.items) |cycle_id| {
+                try visited.put(cycle_id, {});
+            }
+
+            for (scc.items) |cycle_id| {
+                if (flat_map.get(cycle_id)) |cycle_node| {
+                    try result.append(self.allocator, cycle_node);
+                }
+            }
+
+            for (scc.items) |cycle_id| {
+                if (flat_map.get(cycle_id)) |cycle_node| {
+                    if (cycle_node.children) |*ch| {
+                        for (ch.items) |*child| {
+                            try self.traverseDfs(flat_map, node_to_cycle, sccs, child.id, depth + 1, max_depth, visited, result);
+                        }
+                    }
+                    if (cycle_node.causal_links) |*cl| {
+                        for (cl.items) |*link| {
+                            try self.traverseDfs(flat_map, node_to_cycle, sccs, link.target, depth + 1, max_depth, visited, result);
+                        }
+                    }
+                }
+            }
+        } else {
+            try visited.put(node_id, {});
+            try result.append(self.allocator, node);
+
+            if (node.children) |*ch| {
+                for (ch.items) |*child| {
+                    try self.traverseDfs(flat_map, node_to_cycle, sccs, child.id, depth + 1, max_depth, visited, result);
+                }
+            }
+            if (node.causal_links) |*cl| {
+                for (cl.items) |*link| {
+                    try self.traverseDfs(flat_map, node_to_cycle, sccs, link.target, depth + 1, max_depth, visited, result);
+                }
+            }
+        }
+    }
+
     /// Query the mind-map using the LLM: collect leaf context, build prompts, call the LLM.
     pub fn query(self: *QueryEngine, mindmap: *const MindMap, doc: []const u8, question: []const u8, llm: *LLMService) !QueryResult {
-        const all_leaves = try self.collectLeafNodes(mindmap);
-        defer self.allocator.free(all_leaves);
+        var flat_map = std.StringHashMap(*const ConceptNode).init(self.allocator);
+        defer flat_map.deinit();
+        try self.buildFlatNodeMap(mindmap, &flat_map);
 
-        const sorted = try self.allocator.dupe(*const ConceptNode, all_leaves);
+        const start_node_ids = try self.findStartNodes(&flat_map, question);
+        defer {
+            for (start_node_ids) |id| self.allocator.free(id);
+            self.allocator.free(start_node_ids);
+        }
+
+        const traversed = try self.traverseGraph(mindmap, &flat_map, start_node_ids, 5);
+        defer self.allocator.free(traversed);
+
+        const nodes_to_assemble = if (traversed.len > 0) traversed else try self.collectLeafNodes(mindmap);
+        defer if (traversed.len == 0) self.allocator.free(nodes_to_assemble);
+
+        const sorted = try self.allocator.dupe(*const ConceptNode, nodes_to_assemble);
         defer self.allocator.free(sorted);
         std.mem.sort(*const ConceptNode, sorted, {}, struct {
             fn lessThan(_: void, a: *const ConceptNode, b: *const ConceptNode) bool {
@@ -224,4 +516,62 @@ test "assemble context text from nodes and document" {
     defer alloc.free(ctx);
     try std.testing.expect(std.mem.indexOf(u8, ctx, "Hello world") != null);
     try std.testing.expect(std.mem.indexOf(u8, ctx, "Deep dive") != null);
+}
+
+test "QueryEngine: findStartNodes" {
+    const alloc = std.testing.allocator;
+    var engine = QueryEngine.init(alloc);
+    defer engine.deinit(alloc);
+
+    var flat_map = std.StringHashMap(*const ConceptNode).init(alloc);
+    defer flat_map.deinit();
+
+    var n1 = try ConceptNode.init(alloc, "intro", "Introduction", "Overview", 1, 1, 5);
+    defer n1.deinit(alloc);
+    try flat_map.put(n1.id, &n1);
+
+    var n2 = try ConceptNode.init(alloc, "details", "Deep Dive", "Details", 2, 6, 10);
+    defer n2.deinit(alloc);
+    try flat_map.put(n2.id, &n2);
+
+    const starts = try engine.findStartNodes(&flat_map, "Tell me about Introduction and Deep Dive.");
+    defer {
+        for (starts) |id| alloc.free(id);
+        alloc.free(starts);
+    }
+
+    try std.testing.expect(starts.len == 2);
+}
+
+test "QueryEngine: traverseGraph with cycles and max depth" {
+    const alloc = std.testing.allocator;
+    var mindmap = try MindMap.init(alloc, "Doc", "Summary");
+    defer mindmap.deinit(alloc);
+
+    var node_a = try ConceptNode.init(alloc, "a", "Alpha", "A node", 1, 1, 5);
+    var node_b = try ConceptNode.init(alloc, "b", "Beta", "B node", 1, 6, 10);
+    var node_c = try ConceptNode.init(alloc, "c", "Gamma", "C node", 1, 11, 15);
+    const node_d = try ConceptNode.init(alloc, "d", "Delta", "D node", 2, 16, 20);
+
+    try node_a.addCausalLink(alloc, "b", "causes", "A causes B");
+    try node_b.addCausalLink(alloc, "c", "causes", "B causes C");
+    try node_c.addCausalLink(alloc, "a", "causes", "C causes A");
+    try node_b.addCausalLink(alloc, "d", "causes", "B causes D");
+
+    try mindmap.nodes.append(alloc, node_a);
+    try mindmap.nodes.append(alloc, node_b);
+    try mindmap.nodes.append(alloc, node_c);
+    try mindmap.nodes.append(alloc, node_d);
+
+    var engine = QueryEngine.init(alloc);
+    defer engine.deinit(alloc);
+
+    var flat_map = std.StringHashMap(*const ConceptNode).init(alloc);
+    defer flat_map.deinit();
+    try engine.buildFlatNodeMap(&mindmap, &flat_map);
+
+    const traversed = try engine.traverseGraph(&mindmap, &flat_map, &.{"a"}, 2);
+    defer alloc.free(traversed);
+
+    try std.testing.expect(traversed.len == 4);
 }

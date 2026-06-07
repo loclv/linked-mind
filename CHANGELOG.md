@@ -1,5 +1,43 @@
 # CHANGELOG
 
+## [Unreleased] - 2026-06-07
+
+### Added
+
+- Persistent API and Visualizer server subcommand `li serve` allowing real-time context and graph visualization rendering over HTTP.
+- Fully comprehensive unit testing verifying HTTP header generation and payload serialization logic for 200, 404, 405, and 500 responses.
+- Integrated the `li_tests` unit test runner into `build.zig` under the standard `zig build test` command, enabling continuous validation of CLI commands.
+- Enabled recursive test resolution in `src/root.zig` via `std.testing.refAllDecls(@This())`.
+- Integrated browser-based sidebar "Content Preview" pane in the visualizer displaying rendered Markdown (using `marked.js` library via CDN) or raw text for selected nodes.
+- Integrated backend API support in `li serve` to allow reading/serving supported note file formats (`.md`, `.org`, `.txt`, `.pdf`) directly from the workspace.
+- Added natural language AI query search input ("Ask AI") in the Web visualizer, sending requests to the server's new `/api/query` endpoint and showing the response in the sidebar.
+- Enabled interactive visualizer rehydration by highlighting AI-referenced nodes in the force-graph and listing them as clickable context source cards in the sidebar.
+- Added Temporal Graph View timeline slider in the web visualizer to allow smooth dynamic filtering of nodes based on file modification times.
+- Exported `mtime` modification timestamps (in milliseconds) from parsed node metadata to the D3 force graph visualizer data (`graph.json`).
+- Auto-cached `mtime` fields in the workspace index (`cache.json`) for instant rendering and high-performance live-updates.
+
+### Fixed
+
+- Resolved Zig 0.16.0 deprecations in `src/li.zig` unit tests by migrating them to the unified `std.Io` / `std.process` APIs.
+- Fixed a memory leak in `findWorkspaceRoot` where `current_path` was not freed when returning `error.NoWorkspaceFound`.
+- Fixed a GPA size-mismatch panic (`Allocation size does not match free size`) by changing the return type of `findWorkspaceRoot` to `![:0]u8` to preserve sentinel-allocated string lengths.
+- Corrected path comparisons in tests to support macOS `/private/tmp` symlinks by pre-resolving paths using `realPathFileAlloc`.
+- Corrected helper parameter ordering in `std.mem.indexOf` inside `src/li.zig` tests.
+- Fixed deprecation/lint warnings for indexOf and indexOfScalar in `src/li.zig` by replacing them with `std.mem.find` and `std.mem.findScalar`.
+- Resolved `ziglint` warnings for empty catch blocks by properly logging exceptions.
+
+## [Unreleased] - 2026-06-05
+
+### Added
+
+- Graph traversal query optimization in QueryEngine (`src/mindmap/query.zig`).
+- Tarjan's Strongly Connected Components (SCC) algorithm (`TarjanContext`) to pre-detect directed cycles and loops within the mind-map tree and causal graph.
+- Loop/cycle merging logic during traversal to resolve cyclic dependency infinite loops.
+- Visited list tracking (`visitedList`) to prevent re-entering visited nodes.
+- Recursion depth control (`MaxDepth`) to prevent stack overflow in deep graphs.
+- Custom keyword matching (`findStartNodes`) to resolve query entry points from user questions.
+- High-coverage unit tests for `findStartNodes` and `traverseGraph` with cycle detection and max depth constraints.
+
 ## [Unreleased] - 2026-06-02
 
 ### Added

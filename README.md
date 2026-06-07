@@ -94,6 +94,10 @@ li export --tag research --status completed
   ```bash
   li visualize
   ```
+- Persistent API and Visualizer Server: Start the persistent local HTTP server to view the graph visualizer and fetch API indices.
+  ```bash
+  li serve [--port 8080]
+  ```
 - Real-Time File Watcher: Run the native background daemon to monitor note changes and automatically rebuild and export visualizer data.
   ```bash
   li watch
@@ -135,7 +139,7 @@ Standard RAG (Retrieval-Augmented Generation) often treats files as isolated chu
 
 - `src/parser.zig`: Unified parser for multiple formats (.md, .org, .txt, .pdf) extracting `[[links]]` and `#tags`.
 - `src/graph.zig`: Adjacency-list based graph representation and link resolver.
-- `src/li.zig`: Workspace-aware CLI with `init`, `scan`, `export`, `path`, `clusters`, `gc`, `similar`, `suggest`, `visualize`.
+- `src/li.zig`: Workspace-aware CLI with `init`, `scan`, `export`, `path`, `clusters`, `gc`, `similar`, `suggest`, `visualize`, `serve`.
 - `src/cache.zig`: Incremental scanning engine with `mtime` + SHA-256 cache.
 - `src/main.zig`: Legacy CLI handler (direct path mode).
 - `src/mindmap/`: Mind-Map RAG subsystem.

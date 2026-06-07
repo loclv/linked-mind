@@ -6,6 +6,8 @@
   <title>Linked-Mind Graph Visualizer</title>
   <!-- Force Graph -->
   <script src="//unpkg.com/force-graph"></script>
+  <!-- Marked MD Parser -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <!-- Font -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
   <style>
@@ -279,14 +281,166 @@
       font-size: 16px;
       animation: pulse 1.5s infinite alternate;
     }
+
+    #ai-input {
+      background: rgba(102, 252, 241, 0.05);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(102, 252, 241, 0.2);
+      border-radius: 8px;
+      color: #fff;
+      padding: 10px 20px;
+      width: 200px;
+      outline: none;
+      transition: border-color 0.2s, width 0.3s;
+    }
+
+    #ai-input:focus {
+      border-color: var(--text-highlight);
+      width: 250px;
+      box-shadow: 0 0 10px rgba(102, 252, 241, 0.2);
+    }
+
+    #side-content h1, #side-content h2, #side-content h3 {
+      font-size: 14px;
+      margin-top: 14px;
+      margin-bottom: 6px;
+      color: var(--text-highlight);
+      border-bottom: none;
+      padding-bottom: 0;
+    }
+    #side-content p {
+      margin: 0 0 10px 0;
+    }
+    #side-content code {
+      background: rgba(255, 255, 255, 0.1);
+      padding: 2px 4px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 11px;
+    }
+    #side-content pre {
+      background: rgba(0, 0, 0, 0.4);
+      padding: 8px;
+      border-radius: 6px;
+      overflow-x: auto;
+      margin: 10px 0;
+    }
+    #side-content pre code {
+      background: none;
+      padding: 0;
+    }
+    #side-content a {
+      color: var(--text-highlight);
+      text-decoration: none;
+    }
+    #side-content a:hover {
+      text-decoration: underline;
+    }
+    #side-content ul, #side-content ol {
+      margin: 0 0 10px 0;
+      padding-left: 16px;
+    }
+
+    #timeline-container {
+      position: absolute;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 650px;
+      background: var(--panel-bg);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 16px;
+      padding: 16px 24px;
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+      z-index: 20;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      transition: opacity 0.3s;
+    }
+
+    .timeline-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 14px;
+      color: #fff;
+    }
+
+    .timeline-title {
+      font-weight: 600;
+      color: var(--text-highlight);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      letter-spacing: 0.5px;
+    }
+
+    .timeline-controls {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .timeline-toggle-lbl {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      color: var(--text-main);
+    }
+
+    .timeline-slider-wrapper {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    #timeline-slider {
+      flex-grow: 1;
+      -webkit-appearance: none;
+      background: rgba(255, 255, 255, 0.1);
+      height: 6px;
+      border-radius: 3px;
+      outline: none;
+      cursor: pointer;
+    }
+
+    #timeline-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--text-highlight);
+      box-shadow: 0 0 10px var(--text-highlight);
+      transition: transform 0.1s;
+    }
+
+    #timeline-slider::-webkit-slider-thumb:hover {
+      transform: scale(1.2);
+    }
+
+    .timeline-time {
+      font-size: 12px;
+      color: var(--text-main);
+      min-width: 140px;
+      text-align: right;
+    }
   </style>
 </head>
 <body>
   <div class="app-title">Linked<span>Mind</span></div>
   
-  <div id="search-container">
-    <input type="text" id="search-input" placeholder="Search knowledge..." onkeyup="handleSearch(event)">
-    <div id="search-results"></div>
+  <div id="search-container" style="display: flex; gap: 8px;">
+    <div style="position: relative;">
+      <input type="text" id="search-input" placeholder="Search knowledge..." onkeyup="handleSearch(event)">
+      <div id="search-results"></div>
+    </div>
+    <input type="text" id="ai-input" placeholder="Ask AI (Enter)..." onkeyup="handleAiQuery(event)">
   </div>
 
   <div id="loader">Loading Neural Graph...</div>
@@ -313,12 +467,34 @@
         <span class="meta-value" id="side-degree">-</span>
       </div>
     </div>
+
+    <h3>Content Preview</h3>
+    <div id="side-content" style="background: rgba(0,0,0,0.3); padding: 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); max-height: 250px; overflow-y: auto; font-size: 13px; line-height: 1.6; color: var(--text-main); margin-bottom: 20px; scrollbar-width: thin;">
+      Select a node to view its content.
+    </div>
     
     <h3>Relationships</h3>
     <div class="relationships" id="side-relations">
       <!-- Generated dynamically -->
     </div>
   </aside>
+
+  <div id="timeline-container" class="hidden">
+    <div class="timeline-header">
+      <div class="timeline-title">⏱️ Temporal View</div>
+      <div class="timeline-controls">
+        <label class="timeline-toggle-lbl">
+          <input type="checkbox" id="timeline-enable" onchange="toggleTimeline(event)"> Filter by Time
+        </label>
+      </div>
+    </div>
+    <div class="timeline-slider-wrapper">
+      <span id="timeline-min-lbl" style="font-size: 11px; color: #888;">Min</span>
+      <input type="range" id="timeline-slider" oninput="onTimelineSliderChange(event)" onchange="onTimelineSliderCommit(event)">
+      <span id="timeline-max-lbl" style="font-size: 11px; color: #888;">Max</span>
+      <span id="timeline-current-val" class="timeline-time">Date</span>
+    </div>
+  </div>
 
   <div id="toast-container" style="position: absolute; bottom: 24px; left: 24px; z-index: 100; pointer-events: none;"></div>
 
@@ -327,11 +503,250 @@
       '#66fcf1', '#45a29e', '#f2a900', '#e94b3c', '#9b59b6', '#3498db', '#e67e22', '#2ecc71', '#1abc9c', '#f39c12'
     ];
 
+    let fullGraphData = null;
     let graphData = null;
     let selectedNode = null;
     let graphInstance = null;
     let lastJsonStr = '';
     const sidebar = document.getElementById('sidebar');
+
+    function formatDate(timestamp) {
+      const d = new Date(Number(timestamp));
+      if (isNaN(d.getTime())) return 'N/A';
+      return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function updateSliderLabel(val) {
+      document.getElementById('timeline-current-val').innerText = formatDate(val);
+    }
+
+    function initTimeline() {
+      const mtimes = fullGraphData.nodes
+        .map(n => n.mtime)
+        .filter(t => typeof t === 'number' && t > 0);
+
+      const timelineContainer = document.getElementById('timeline-container');
+      
+      if (mtimes.length === 0) {
+        timelineContainer.classList.add('hidden');
+        return;
+      }
+      
+      timelineContainer.classList.remove('hidden');
+      
+      const minMtime = Math.min(...mtimes);
+      const maxMtime = Math.max(...mtimes);
+      
+      const slider = document.getElementById('timeline-slider');
+      const minLbl = document.getElementById('timeline-min-lbl');
+      const maxLbl = document.getElementById('timeline-max-lbl');
+      
+      slider.min = minMtime;
+      slider.max = maxMtime;
+      
+      minLbl.innerText = formatDate(minMtime).split(' ')[0];
+      maxLbl.innerText = formatDate(maxMtime).split(' ')[0];
+      
+      const enableCheckbox = document.getElementById('timeline-enable');
+      if (!enableCheckbox.checked) {
+        slider.value = maxMtime;
+        updateSliderLabel(maxMtime);
+      } else {
+        if (Number(slider.value) < minMtime) slider.value = minMtime;
+        if (Number(slider.value) > maxMtime) slider.value = maxMtime;
+        updateSliderLabel(slider.value);
+      }
+    }
+
+    function toggleTimeline(e) {
+      applyTimelineFilter();
+    }
+
+    function onTimelineSliderChange(e) {
+      updateSliderLabel(e.target.value);
+    }
+
+    function onTimelineSliderCommit(e) {
+      applyTimelineFilter();
+    }
+
+    function applyTimelineFilter() {
+      if (!graphInstance) return;
+      
+      const enableCheckbox = document.getElementById('timeline-enable');
+      const slider = document.getElementById('timeline-slider');
+      
+      let filteredNodes = [...fullGraphData.nodes];
+      let filteredLinks = [...fullGraphData.links];
+      
+      if (enableCheckbox.checked) {
+        const threshold = Number(slider.value);
+        
+        filteredNodes = fullGraphData.nodes.filter(n => {
+          return !n.mtime || n.mtime <= threshold;
+        });
+        
+        const visibleNodeIds = new Set(filteredNodes.map(n => n.id));
+        filteredLinks = fullGraphData.links.filter(link => {
+          const srcId = link.source.id || link.source;
+          const tgtId = link.target.id || link.target;
+          return visibleNodeIds.has(srcId) && visibleNodeIds.has(tgtId);
+        });
+      }
+      
+      const nextGraphData = {
+        nodes: filteredNodes,
+        links: filteredLinks
+      };
+      
+      if (selectedNode) {
+        const isStillVisible = filteredNodes.some(n => n.id === selectedNode.id);
+        if (!isStillVisible) {
+          selectedNode = null;
+          closeSidebar();
+        }
+      }
+      
+      graphData = nextGraphData;
+      graphInstance.graphData(nextGraphData);
+      graphInstance.nodeColor(graphInstance.nodeColor());
+    }
+
+    function initOrUpdateGraph(data) {
+      document.getElementById('loader').classList.add('hidden');
+
+      // Preserve positions for physics stability
+      if (graphData && graphData.nodes) {
+        data.nodes.forEach(newNode => {
+          const existingNode = graphData.nodes.find(n => n.id === newNode.id);
+          if (existingNode) {
+            newNode.x = existingNode.x;
+            newNode.y = existingNode.y;
+            newNode.vx = existingNode.vx;
+            newNode.vy = existingNode.vy;
+          }
+        });
+      }
+
+      fullGraphData = data;
+
+      // Calculate node degrees for sizing
+      const nodeDegrees = {};
+      fullGraphData.links.forEach(link => {
+        const srcId = link.source.id || link.source;
+        const tgtId = link.target.id || link.target;
+        nodeDegrees[srcId] = (nodeDegrees[srcId] || 0) + 1;
+        nodeDegrees[tgtId] = (nodeDegrees[tgtId] || 0) + 1;
+      });
+
+      fullGraphData.nodes.forEach(node => {
+        node.val = (nodeDegrees[node.id] || 0) + 1;
+      });
+
+      initTimeline();
+
+      // Compute active filtered state
+      const enableCheckbox = document.getElementById('timeline-enable');
+      const slider = document.getElementById('timeline-slider');
+      let activeNodes = [...fullGraphData.nodes];
+      let activeLinks = [...fullGraphData.links];
+
+      if (enableCheckbox && enableCheckbox.checked) {
+        const threshold = Number(slider.value);
+        activeNodes = fullGraphData.nodes.filter(n => !n.mtime || n.mtime <= threshold);
+        const visibleNodeIds = new Set(activeNodes.map(n => n.id));
+        activeLinks = fullGraphData.links.filter(link => {
+          const srcId = link.source.id || link.source;
+          const tgtId = link.target.id || link.target;
+          return visibleNodeIds.has(srcId) && visibleNodeIds.has(tgtId);
+        });
+      }
+
+      const activeData = { nodes: activeNodes, links: activeLinks };
+
+      if (!graphInstance) {
+        graphData = activeData;
+        graphInstance = ForceGraph()(document.getElementById('graph'))
+          .graphData(activeData)
+          .nodeId('id')
+          .nodeLabel('title')
+          .nodeColor(node => {
+            if (selectedNode && selectedNode.id === node.id) return '#ffffff';
+            if (aiHighlightedNodeIds.includes(node.id)) return '#ffffff';
+            return colorPalette[node.group % colorPalette.length];
+          })
+          .nodeRelSize(5)
+          .nodeVal('val')
+          .linkColor(() => 'rgba(255, 255, 255, 0.15)')
+          .linkDirectionalParticles(2)
+          .linkDirectionalParticleWidth(1.5)
+          .linkDirectionalParticleSpeed(d => 0.005)
+          .linkDirectionalArrowLength(4)
+          .linkDirectionalArrowRelPos(1)
+          .onNodeClick(node => {
+            resetAiHighlighting();
+            focusNode(node);
+          })
+          .onBackgroundClick(() => {
+            selectedNode = null;
+            resetAiHighlighting();
+            graphInstance.nodeColor(graphInstance.nodeColor());
+            closeSidebar();
+          });
+
+        // Custom node rendering
+        graphInstance.nodeCanvasObject((node, ctx, globalScale) => {
+          const label = node.title;
+          const isSelected = selectedNode === node || aiHighlightedNodeIds.includes(node.id);
+          const fontSize = 12/globalScale;
+          
+          const r = Math.sqrt(node.val) * graphInstance.nodeRelSize();
+
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, r, 0, 2 * Math.PI, false);
+          ctx.fillStyle = isSelected ? '#ffffff' : colorPalette[node.group % colorPalette.length];
+          
+          if (isSelected) {
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = '#ffffff';
+          } else {
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = ctx.fillStyle;
+          }
+          
+          ctx.fill();
+          ctx.shadowBlur = 0;
+
+          ctx.font = `${fontSize}px Inter, Sans-Serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillStyle = isSelected ? '#ffffff' : 'rgba(255, 255, 255, 0.8)';
+          ctx.fillText(label, node.x, node.y + r + fontSize);
+        });
+      } else {
+        // Keep selected node focused if it still exists in the new graph
+        if (selectedNode) {
+          const updatedNode = data.nodes.find(n => n.id === selectedNode.id);
+          if (updatedNode) {
+            const oldNode = graphData.nodes.find(n => n.id === selectedNode.id);
+            if (oldNode) {
+              updatedNode.x = oldNode.x;
+              updatedNode.y = oldNode.y;
+              updatedNode.vx = oldNode.vx;
+              updatedNode.vy = oldNode.vy;
+            }
+            selectedNode = updatedNode;
+            openSidebar(selectedNode);
+          } else {
+            selectedNode = null;
+            closeSidebar();
+          }
+        }
+        
+        graphData = activeData;
+        graphInstance.graphData(activeData);
+      }
+    }
 
     function showToast(message) {
       const container = document.getElementById('toast-container');
@@ -377,6 +792,7 @@
           .nodeLabel('title')
           .nodeColor(node => {
             if (selectedNode && selectedNode.id === node.id) return '#ffffff';
+            if (aiHighlightedNodeIds.includes(node.id)) return '#ffffff';
             return colorPalette[node.group % colorPalette.length];
           })
           .nodeRelSize(5)
@@ -388,10 +804,12 @@
           .linkDirectionalArrowLength(4)
           .linkDirectionalArrowRelPos(1)
           .onNodeClick(node => {
+            resetAiHighlighting();
             focusNode(node);
           })
           .onBackgroundClick(() => {
             selectedNode = null;
+            resetAiHighlighting();
             graphInstance.nodeColor(graphInstance.nodeColor());
             closeSidebar();
           });
@@ -399,7 +817,7 @@
         // Custom node rendering
         graphInstance.nodeCanvasObject((node, ctx, globalScale) => {
           const label = node.title;
-          const isSelected = selectedNode === node;
+          const isSelected = selectedNode === node || aiHighlightedNodeIds.includes(node.id);
           const fontSize = 12/globalScale;
           
           const r = Math.sqrt(node.val) * graphInstance.nodeRelSize();
@@ -545,12 +963,113 @@
       });
     }
 
+    let aiHighlightedNodeIds = [];
+
+    function handleAiQuery(e) {
+      if (e.key !== 'Enter') return;
+      const query = e.target.value.trim();
+      if (!query) return;
+      
+      openAiSidebar(query);
+    }
+
+    function openAiSidebar(query) {
+      document.getElementById('side-title').innerText = 'Ask AI';
+      document.getElementById('side-id').innerText = 'GPT-4o';
+      document.getElementById('side-group').innerText = 'N/A';
+      document.getElementById('side-rank').innerText = 'N/A';
+      document.getElementById('side-degree').innerText = 'N/A';
+      
+      const relContainer = document.getElementById('side-relations');
+      relContainer.innerHTML = '';
+      
+      const contentContainer = document.getElementById('side-content');
+      contentContainer.innerHTML = '<span style="color: #66fcf1; font-style: italic; animation: pulse 1.5s infinite alternate;">AI is thinking...</span>';
+      
+      sidebar.classList.add('active');
+      resetAiHighlighting();
+      
+      fetch(`/api/query?q=${encodeURIComponent(query)}`)
+        .then(res => {
+          if (!res.ok) {
+            return res.json().then(errData => {
+              throw new Error(errData.error || `HTTP ${res.status}`);
+            }).catch(() => {
+              throw new Error(`HTTP ${res.status}`);
+            });
+          }
+          return res.json();
+        })
+        .then(data => {
+          if (typeof marked !== 'undefined') {
+            contentContainer.innerHTML = marked.parse(data.answer);
+          } else {
+            contentContainer.innerText = data.answer;
+          }
+          
+          const referencedNodes = data.node_ids || [];
+          if (referencedNodes.length > 0) {
+            aiHighlightedNodeIds = referencedNodes;
+            
+            // Highlight nodes in the graph
+            graphInstance.nodeColor(graphInstance.nodeColor());
+            
+            relContainer.innerHTML = '<h3>Referenced Notes</h3>';
+            referencedNodes.forEach(nodeId => {
+              const targetNode = graphData.nodes.find(n => n.id === nodeId);
+              if (targetNode) {
+                appendRelationCard('Context Source', 'source', nodeId);
+              }
+            });
+          } else {
+            relContainer.innerHTML = '<div style="color:#888; font-size:14px; font-style:italic;">No nodes referenced.</div>';
+          }
+        })
+        .catch(err => {
+          contentContainer.innerHTML = `<span style="color: #ff5555; font-style: italic;">Query failed: ${err.message}</span>`;
+        });
+    }
+
+    function resetAiHighlighting() {
+      if (aiHighlightedNodeIds.length > 0) {
+        aiHighlightedNodeIds = [];
+        graphInstance.nodeColor(graphInstance.nodeColor());
+      }
+    }
+
     function openSidebar(node) {
       document.getElementById('side-title').innerText = node.title;
       document.getElementById('side-id').innerText = node.id;
       document.getElementById('side-group').innerText = node.group;
       document.getElementById('side-rank').innerText = node.rank ? node.rank.toFixed(6) : 'N/A';
       document.getElementById('side-degree').innerText = node.val - 1;
+
+      const contentContainer = document.getElementById('side-content');
+      contentContainer.innerHTML = '<span style="color: #888; font-style: italic;">Loading preview...</span>';
+
+      if (node.path) {
+        fetch(node.path)
+          .then(res => {
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            return res.text();
+          })
+          .then(text => {
+            if (node.path.endsWith('.md')) {
+              if (typeof marked !== 'undefined') {
+                contentContainer.innerHTML = marked.parse(text);
+              } else {
+                contentContainer.innerText = text;
+              }
+            } else {
+              contentContainer.innerText = text;
+            }
+          })
+          .catch(err => {
+            contentContainer.innerHTML = `<span style="color: #ff5555; font-style: italic;">Failed to load preview: ${err.message}</span>`;
+          });
+      } else {
+        contentContainer.innerHTML = '<span style="color: #888; font-style: italic;">No path available.</span>';
+      }
 
       const relContainer = document.getElementById('side-relations');
       relContainer.innerHTML = '';
@@ -600,6 +1119,7 @@
 
     function closeSidebar() {
       sidebar.classList.remove('active');
+      resetAiHighlighting();
     }
   </script>
 </body>

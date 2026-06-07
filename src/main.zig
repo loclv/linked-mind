@@ -14,6 +14,23 @@ const cache = @import("cache.zig");
 const graph = @import("graph.zig");
 const parser = @import("parser.zig");
 
+fn ensureNodeMtime(allocator: std.mem.Allocator, node: *parser.Node, mtime: i128) !void {
+    const mtime_ms = @divTrunc(mtime, 1000000);
+    const mtime_str = try std.fmt.allocPrint(allocator, "{d}", .{mtime_ms});
+    errdefer allocator.free(mtime_str);
+
+    const key = try allocator.dupe(u8, "mtime");
+    errdefer allocator.free(key);
+
+    if (node.metadata.getPtr("mtime")) |val_ptr| {
+        allocator.free(val_ptr.*);
+        val_ptr.* = mtime_str;
+        allocator.free(key);
+    } else {
+        try node.metadata.put(key, mtime_str);
+    }
+}
+
 pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
 
@@ -100,6 +117,7 @@ pub fn main(init: std.process.Init) !void {
             }
 
             if (cached_entry) |ce| {
+                try ensureNodeMtime(allocator, &ce.node, mtime);
                 try kb_graph.addNode(try ce.node.clone(allocator));
                 // Add to new cache
                 const new_node_copy = try ce.node.clone(allocator);
@@ -109,9 +127,10 @@ pub fn main(init: std.process.Init) !void {
                     .node = new_node_copy,
                 });
             } else {
-                const node = try kb_parser.parseFile(absolute_path);
+                var node = try kb_parser.parseFile(absolute_path);
                 const hash = try calculateHash(init.io, absolute_path);
 
+                try ensureNodeMtime(allocator, &node, mtime);
                 // Add a clone to the graph because new_cache will own the 'node' struct
                 try kb_graph.addNode(try node.clone(allocator));
 
@@ -278,7 +297,7 @@ pub fn main(init: std.process.Init) !void {
             }
         }
     } else if (std.mem.eql(u8, mode, "visualize")) {
-        const json_data = try kb_graph.exportGraphJson();
+        const json_data = try kb_graph.exportGraphJson(kb_dir_path);
         defer allocator.free(json_data);
 
         try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = "graph.json", .data = json_data });

@@ -29,6 +29,7 @@ This checklist tracks the implementation of recommended features to enhance the 
 - [x] Web-based Graph Visualizer: Interactive UI for the graph.
   - [x] Export a `graph.json` compatible with D3.js/Force-Graph.
   - [x] Create a simple HTML/JS dashboard to view the network.
+  - [x] Create a persistent HTTP server (`li serve`) to serve visualizer resources and API queries.
 - [x] Knowledge "Garbage Collection":
   - [x] Identify and report "Orphan Notes" (no incoming/outgoing links).
   - [x] Identify "Island Nodes" (small detached cliques).
@@ -51,8 +52,10 @@ This checklist tracks the implementation of recommended features to enhance the 
   - [x] Louvain Clustering: Modularity-based community detection.
   - [x] Link Suggestion: Predict missing links via content similarity.
 - [x] Enhanced Visualizer:
-  - [x] Integrated Previewer (sidebar showing Rank/Metadata).
+  - [x] Integrated Previewer (sidebar showing Rank/Metadata and rendered Markdown/text content).
   - [x] Node Search in UI.
+  - [x] "Ask AI" Natural Language Query integration with live RAG responses and highlighted source nodes.
+  - [x] Temporal Graph View (interactive timeline slider filtering nodes based on file modification times).
 
 ## 🛠 Zig 0.16.0 Compatibility & Migration (COMPLETED)
 - [x] Migrate codebase from Zig 0.15.2 to Zig 0.16.0 compatibility.

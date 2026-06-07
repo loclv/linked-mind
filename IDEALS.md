@@ -5,7 +5,7 @@ Currently, the system requires manual rescans. The "ideal" state is a "Living Gr
 
 - [x] Native File Watcher: Implement a cross-platform background daemon in Zig (implemented as `li watch` polling loop).
 - [x] Live UI Rehydration: Automatically push updates to the `graph.json` and trigger a refresh in the Web Visualizer when files change.
-- [ ] Hot-Reloading LLM Context: A persistent API server that always provides the most up-to-date `llm_knowledge.md` via an HTTP endpoint.
+- [x] Hot-Reloading LLM Context: A persistent API server that always provides the most up-to-date `llm_knowledge.md` via an HTTP endpoint (implemented as `li serve`).
 ## 2. 🧠 Advanced Graph Intelligence
 Moving beyond simple connectivity to understanding the shape and importance of knowledge.
 
@@ -17,11 +17,11 @@ Bridging the gap between the graph structure and vector-based semantics.
 
 - [ ] Local Embeddings (Vector Search): Integrate `llama.cpp` or a small transformer model to generate 384d/768d embeddings locally for all nodes.
 - [ ] Hybrid Search Engine: Combine Graph BFS paths with Vector Similarity for "Contextual Retrieval" (e.g., "Find notes related to 'Quantum' that are within 2 hops of 'Computing'").
-- [ ] NLQ (Natural Language Query): Use an LLM to translate natural language questions into graph traversal queries.
+- [x] NLQ (Natural Language Query): Use an LLM to translate natural language questions into graph traversal queries (implemented as 'Ask AI' in visualizer querying the RAG mind-map query engine).
 ## 4. 🎨 Next-Level Web Visualizer
 Transforming the visualizer from a static viewer into an interactive workspace.
 
-- [ ] Integrated Previewer: A browser-based side-pane to see rendered Markdown content when clicking a node.
+- [x] Integrated Previewer: A browser-based side-pane to see rendered Markdown content when clicking a node (implemented as side-content markdown previewer).
 - [ ] Interactive Relationship Editor: Drag-and-drop links between nodes visually to update the underlying Markdown files.
 - [ ] Temporal Graph View: A timeline slider to see how your knowledge graph grew over time (using git history or file creation dates).
 ## 5. 🛠 Technical Refactoring & Optimization
