@@ -4,6 +4,7 @@ const c = std.c;
 
 pub const LLMConfig = struct { // ziglint-ignore: Z032
     model: []const u8 = "gpt-4o",
+    fallback_model: ?[]const u8 = "gpt-4o-mini",
     endpoint: []const u8 = "https://api.openai.com/v1/chat/completions",
     api_key: []const u8 = "",
     max_retries: u3 = 3,
@@ -80,57 +81,157 @@ pub const LLMService = struct { // ziglint-ignore: Z032
 
     pub fn chat(self: *LLMService, llm_req: *const LLMRequest) !LLMResponse {
         const api_key = try self.getApiKey();
-        const json_body = try llm_req.toJson(self.allocator);
-        defer self.allocator.free(json_body);
+        var current_model = llm_req.model;
+        var attempt: u3 = 0;
+        const max_attempts = self.config.max_retries;
+        var backoff_seconds: u32 = 1;
 
-        var client: std.http.Client = .{ .allocator = self.allocator, .io = self.io };
-        defer client.deinit();
-
-        const uri = try std.Uri.parse(self.config.endpoint);
-
-        var auth_hdr_buf: [4096]u8 = undefined;
-        const auth_value = try std.fmt.bufPrint(&auth_hdr_buf, "Bearer {s}", .{api_key});
-
-        var extra_headers = [_]std.http.Header{
-            .{ .name = "Authorization", .value = auth_value },
-            .{ .name = "Content-Type", .value = "application/json" },
-        };
-
-        var req = try client.request(.POST, uri, .{ .extra_headers = &extra_headers });
-        defer req.deinit();
-
-        var transfer_buf: [4096]u8 = undefined;
-        var bw = try req.sendBody(&transfer_buf);
-        try bw.writer.writeAll(json_body);
-        try bw.end();
-
-        var redirect_buf: [4096]u8 = undefined;
-        var resp = try req.receiveHead(&redirect_buf);
-
-        if (resp.head.status.class() != .success) {
-            var err_reader = resp.reader(&transfer_buf);
-            var err_list: std.ArrayList(u8) = .empty;
-            defer err_list.deinit(self.allocator);
-            var chunk: [512]u8 = undefined;
-            while (true) {
-                const n = try err_reader.readSliceShort(&chunk);
-                if (n == 0) break;
-                try err_list.appendSlice(self.allocator, chunk[0..n]);
-            }
-            std.log.err("LLM API returned {}: {s}", .{ resp.head.status, err_list.items });
-            return error.HttpStatusError;
-        }
-
-        var resp_reader = resp.reader(&transfer_buf);
-        var resp_list: std.ArrayList(u8) = .empty;
-        defer resp_list.deinit(self.allocator);
         while (true) {
-            const n = try resp_reader.readSliceShort(&transfer_buf);
-            if (n == 0) break;
-            try resp_list.appendSlice(self.allocator, transfer_buf[0..n]);
-        }
+            var req_with_model = LLMRequest.init(llm_req.messages, current_model, llm_req.temperature);
+            const json_body = req_with_model.toJson(self.allocator) catch |err| {
+                std.log.err("Failed to serialize LLMRequest: {any}", .{err});
+                return err;
+            };
+            defer self.allocator.free(json_body);
 
-        return LLMResponse.fromJson(self.allocator, resp_list.items);
+            var client: std.http.Client = .{ .allocator = self.allocator, .io = self.io };
+            defer client.deinit();
+
+            const uri = std.Uri.parse(self.config.endpoint) catch |err| {
+                std.log.err("Failed to parse LLM endpoint URI: {any}", .{err});
+                return err;
+            };
+
+            var auth_hdr_buf: [4096]u8 = undefined;
+            const auth_value = std.fmt.bufPrint(&auth_hdr_buf, "Bearer {s}", .{api_key}) catch |err| {
+                std.log.err("Failed to format authorization header: {any}", .{err});
+                return err;
+            };
+
+            var extra_headers = [_]std.http.Header{
+                .{ .name = "Authorization", .value = auth_value },
+                .{ .name = "Content-Type", .value = "application/json" },
+            };
+
+            var req = client.request(.POST, uri, .{ .extra_headers = &extra_headers }) catch |err| {
+                std.log.err("LLM HTTP request failed (attempt {d}/{d}): {any}", .{ attempt + 1, max_attempts, err });
+                if (attempt + 1 < max_attempts) {
+                    attempt += 1;
+                    try std.Io.sleep(self.io, std.Io.Duration.fromSeconds(backoff_seconds), .awake);
+                    backoff_seconds *= 2;
+                    continue;
+                }
+                if (self.config.fallback_model) |fallback| {
+                    if (!std.mem.eql(u8, current_model, fallback)) {
+                        std.log.warn("All attempts failed for {s}. Falling back to: {s}", .{ current_model, fallback });
+                        current_model = fallback;
+                        attempt = 0;
+                        backoff_seconds = 1;
+                        continue;
+                    }
+                }
+                return err;
+            };
+            defer req.deinit();
+
+            var transfer_buf: [4096]u8 = undefined;
+            var bw = req.sendBody(&transfer_buf) catch |err| {
+                std.log.err("Failed to send HTTP request body: {any}", .{err});
+                if (attempt + 1 < max_attempts) {
+                    attempt += 1;
+                    try std.Io.sleep(self.io, std.Io.Duration.fromSeconds(backoff_seconds), .awake);
+                    backoff_seconds *= 2;
+                    continue;
+                }
+                if (self.config.fallback_model) |fallback| {
+                    if (!std.mem.eql(u8, current_model, fallback)) {
+                        std.log.warn("Failed sending body. Falling back to: {s}", .{fallback});
+                        current_model = fallback;
+                        attempt = 0;
+                        backoff_seconds = 1;
+                        continue;
+                    }
+                }
+                return err;
+            };
+            bw.writer.writeAll(json_body) catch |err| {
+                std.log.err("Failed to write JSON body: {any}", .{err});
+                return err;
+            };
+            bw.end() catch |err| {
+                std.log.err("Failed to end request body: {any}", .{err});
+                return err;
+            };
+
+            var redirect_buf: [4096]u8 = undefined;
+            var resp = req.receiveHead(&redirect_buf) catch |err| {
+                std.log.err("Failed to receive HTTP response head: {any}", .{err});
+                if (attempt + 1 < max_attempts) {
+                    attempt += 1;
+                    try std.Io.sleep(self.io, std.Io.Duration.fromSeconds(backoff_seconds), .awake);
+                    backoff_seconds *= 2;
+                    continue;
+                }
+                if (self.config.fallback_model) |fallback| {
+                    if (!std.mem.eql(u8, current_model, fallback)) {
+                        std.log.warn("Failed receiving head. Falling back to: {s}", .{fallback});
+                        current_model = fallback;
+                        attempt = 0;
+                        backoff_seconds = 1;
+                        continue;
+                    }
+                }
+                return err;
+            };
+
+            if (resp.head.status.class() != .success) {
+                var err_reader = resp.reader(&transfer_buf);
+                var err_list: std.ArrayList(u8) = .empty;
+                defer err_list.deinit(self.allocator);
+                var chunk: [512]u8 = undefined;
+                while (true) {
+                    const n = err_reader.readSliceShort(&chunk) catch 0;
+                    if (n == 0) break;
+                    err_list.appendSlice(self.allocator, chunk[0..n]) catch |err| {
+                        std.log.err("Failed to append to error list: {any}", .{err});
+                    };
+                }
+                std.log.err("LLM API returned status {}: {s}", .{ resp.head.status, err_list.items });
+
+                // Retriable HTTP status codes
+                const is_retriable_status = resp.head.status == .too_many_requests or @intFromEnum(resp.head.status) >= 500;
+                if (is_retriable_status and attempt + 1 < max_attempts) {
+                    attempt += 1;
+                    try std.Io.sleep(self.io, std.Io.Duration.fromSeconds(backoff_seconds), .awake);
+                    backoff_seconds *= 2;
+                    continue;
+                }
+                if (self.config.fallback_model) |fallback| {
+                    if (!std.mem.eql(u8, current_model, fallback)) {
+                        std.log.warn("HTTP status error. Falling back to: {s}", .{fallback});
+                        current_model = fallback;
+                        attempt = 0;
+                        backoff_seconds = 1;
+                        continue;
+                    }
+                }
+                return error.HttpStatusError;
+            }
+
+            var resp_reader = resp.reader(&transfer_buf);
+            var resp_list: std.ArrayList(u8) = .empty;
+            defer resp_list.deinit(self.allocator);
+            while (true) {
+                const n = resp_reader.readSliceShort(&transfer_buf) catch |err| {
+                    std.log.err("Failed to read response body: {any}", .{err});
+                    return err;
+                };
+                if (n == 0) break;
+                try resp_list.appendSlice(self.allocator, transfer_buf[0..n]);
+            }
+
+            return LLMResponse.fromJson(self.allocator, resp_list.items);
+        }
     }
 };
 
@@ -178,6 +279,8 @@ pub const LLMResponse = struct { // ziglint-ignore: Z032
 test "LLMConfig: default values" {
     const config = LLMConfig.init();
     try std.testing.expectEqualStrings("gpt-4o", config.model);
+    try std.testing.expect(config.fallback_model != null);
+    try std.testing.expectEqualStrings("gpt-4o-mini", config.fallback_model.?);
     try std.testing.expect(config.api_key.len == 0);
 }
 

@@ -66,3 +66,8 @@ This checklist tracks the implementation of recommended features to enhance the 
     - [x] Use `std.Io.Writer.Allocating` for dynamic string buffering.
     - [x] Replace `std.Thread.sleep` with `std.Io.sleep`.
     - [x] Verify complete test suite and CLI compilation and run successfully.
+
+## LLM Client Improvements (COMPLETED)
+- [x] Add robust HTTP request retry logic with exponential backoff inside LLMService.chat to handle transient errors and rate limits.
+- [x] Introduce fallback_model field to LLMConfig to support seamless model downgrades when primary request limits are reached.
+- [x] Add configuration validation unit tests.
