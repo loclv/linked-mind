@@ -400,7 +400,11 @@ fn runCommand(allocator: std.mem.Allocator, io: std.Io, cmd: []const u8, ws_root
             };
             defer allocator.free(doc);
 
-            const config = llm_mod.LLMConfig.init();
+            const config_path = try std.fs.path.join(allocator, &[_][]const u8{ ws_root, ".li", "config.json" });
+            defer allocator.free(config_path);
+
+            var config = try llm_mod.LLMConfig.load(allocator, io, config_path);
+            defer config.deinit();
             var llm_svc = llm_mod.LLMService.init(allocator, io, config);
             var engine = query_mod.QueryEngine.init(allocator);
             defer engine.deinit(allocator);
@@ -789,7 +793,11 @@ fn startServer(allocator: std.mem.Allocator, io: std.Io, ws_root: []const u8, po
                 };
                 defer allocator.free(doc);
 
-                const config = llm_mod.LLMConfig.init();
+                const config_path = try std.fs.path.join(allocator, &[_][]const u8{ ws_root, ".li", "config.json" });
+                defer allocator.free(config_path);
+
+                var config = try llm_mod.LLMConfig.load(allocator, io, config_path);
+                defer config.deinit();
                 var llm_svc = llm_mod.LLMService.init(allocator, io, config);
                 var engine = query_mod.QueryEngine.init(allocator);
                 defer engine.deinit(allocator);

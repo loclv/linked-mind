@@ -49,6 +49,23 @@ Initialize a directory as a Linked-Mind workspace. This creates a `.li/` folder 
 li init
 ```
 
+You can configure LLM settings for the query engine by creating a configuration file named .li/config.json in the workspace root. Supported options include:
+* model (string)
+* fallback_model (string or null)
+* endpoint (string)
+* api_key (string)
+* max_retries (integer)
+
+Example .li/config.json:
+```json
+{
+  "model": "gpt-4o",
+  "fallback_model": "gpt-4o-mini",
+  "endpoint": "https://api.openai.com/v1/chat/completions",
+  "max_retries": 3
+}
+```
+
 ### 2. Scan & Analysis
 
 Scan the workspace and update the graph cache.

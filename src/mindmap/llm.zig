@@ -9,8 +9,81 @@ pub const LLMConfig = struct { // ziglint-ignore: Z032
     api_key: []const u8 = "",
     max_retries: u3 = 3,
 
+    // Track dynamic allocations to avoid memory leaks during custom config loading
+    _allocated_model: bool = false,
+    _allocated_fallback: bool = false,
+    _allocated_endpoint: bool = false,
+    _allocated_api_key: bool = false,
+    _allocator: ?std.mem.Allocator = null,
+
     pub fn init() LLMConfig {
         return .{};
+    }
+
+    pub fn deinit(self: *LLMConfig) void {
+        if (self._allocator) |alloc| {
+            if (self._allocated_model) alloc.free(self.model);
+            if (self._allocated_fallback) {
+                if (self.fallback_model) |fb| alloc.free(fb);
+            }
+            if (self._allocated_endpoint) alloc.free(self.endpoint);
+            if (self._allocated_api_key) alloc.free(self.api_key);
+        }
+        self.* = undefined;
+    }
+
+    // Load configuration values from a JSON configuration file if it exists, otherwise use defaults
+    pub fn load(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !LLMConfig {
+        const file_content = std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(1048576)) catch |err| {
+            if (err == error.FileNotFound) {
+                return init();
+            }
+            return err;
+        };
+        defer allocator.free(file_content);
+
+        const parsed = try std.json.parseFromSlice(std.json.Value, allocator, file_content, .{});
+        defer parsed.deinit();
+
+        const root = parsed.value;
+        const obj = if (root == .object) root.object else return error.InvalidJson;
+
+        var config = init();
+        config._allocator = allocator;
+
+        if (obj.get("model")) |val| {
+            if (val == .string) {
+                config.model = try allocator.dupe(u8, val.string);
+                config._allocated_model = true;
+            }
+        }
+        if (obj.get("fallback_model")) |val| {
+            if (val == .string) {
+                config.fallback_model = try allocator.dupe(u8, val.string);
+                config._allocated_fallback = true;
+            } else if (val == .null) {
+                config.fallback_model = null;
+            }
+        }
+        if (obj.get("endpoint")) |val| {
+            if (val == .string) {
+                config.endpoint = try allocator.dupe(u8, val.string);
+                config._allocated_endpoint = true;
+            }
+        }
+        if (obj.get("api_key")) |val| {
+            if (val == .string) {
+                config.api_key = try allocator.dupe(u8, val.string);
+                config._allocated_api_key = true;
+            }
+        }
+        if (obj.get("max_retries")) |val| {
+            if (val == .integer) {
+                config.max_retries = @intCast(val.integer);
+            }
+        }
+
+        return config;
     }
 };
 
@@ -54,7 +127,7 @@ pub const LLMRequest = struct { // ziglint-ignore: Z032
         try jw.objectField("temperature");
         try jw.write(self.temperature);
         try jw.endObject();
-        return alloc.dupe(u8, out.written());
+        return out.toOwnedSlice();
     }
 };
 
@@ -260,9 +333,18 @@ pub const LLMResponse = struct { // ziglint-ignore: Z032
         const msg_obj = if (msg_val == .object) msg_val.object else return error.InvalidJson;
         const content_val = msg_obj.get("content") orelse return emptyResponse(alloc);
         const content_str = if (content_val == .string) content_val.string else return error.InvalidJson;
+
+        // Parse finish_reason if available
+        var finish_reason_str: []const u8 = "";
+        if (choice_obj.get("finish_reason")) |fr_val| {
+            if (fr_val == .string) {
+                finish_reason_str = fr_val.string;
+            }
+        }
+
         return .{
             .content = try alloc.dupe(u8, content_str),
-            .finish_reason = try alloc.dupe(u8, ""),
+            .finish_reason = try alloc.dupe(u8, finish_reason_str),
             .allocator = alloc,
         };
     }
@@ -307,6 +389,54 @@ test "LLMResponse: parse from JSON" {
     var resp = try LLMResponse.fromJson(alloc, json);
     defer resp.deinit(alloc);
     try std.testing.expectEqualStrings("Hello world", resp.content);
+    try std.testing.expectEqualStrings("stop", resp.finish_reason);
+}
+
+test "LLMConfig: load from JSON file" {
+    const alloc = std.testing.allocator;
+    var test_threaded_io = std.Io.Threaded.global_single_threaded;
+    const io = test_threaded_io.io();
+
+    const json_content =
+        \\{
+        \\  "model": "claude-3-opus",
+        \\  "fallback_model": "claude-3-sonnet",
+        \\  "endpoint": "https://api.anthropic.com/v1/messages",
+        \\  "api_key": "sk-anthropic-test",
+        \\  "max_retries": 5
+        \\}
+    ;
+
+    var base = try std.Io.Dir.openDirAbsolute(io, "/tmp", .{});
+    defer base.close(io);
+
+    var rand_bytes: [8]u8 = undefined;
+    try io.randomSecure(&rand_bytes);
+    const hex_name = std.fmt.bytesToHex(rand_bytes, .lower);
+    var name_buf: [64]u8 = undefined;
+    const filename = try std.fmt.bufPrint(&name_buf, "li-llm-config-{s}.json", .{&hex_name});
+
+    const full_path = try std.fs.path.join(alloc, &.{ "/tmp", filename });
+    defer alloc.free(full_path);
+
+    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = full_path, .data = json_content });
+    defer {
+        if (std.Io.Dir.openDirAbsolute(io, "/tmp", .{})) |*b| {
+            var mut_b = b.*;
+            defer mut_b.close(io);
+            mut_b.deleteFile(io, filename) catch {};
+        } else |_| {}
+    }
+
+    var config = try LLMConfig.load(alloc, io, full_path);
+    defer config.deinit();
+
+    try std.testing.expectEqualStrings("claude-3-opus", config.model);
+    try std.testing.expect(config.fallback_model != null);
+    try std.testing.expectEqualStrings("claude-3-sonnet", config.fallback_model.?);
+    try std.testing.expectEqualStrings("https://api.anthropic.com/v1/messages", config.endpoint);
+    try std.testing.expectEqualStrings("sk-anthropic-test", config.api_key);
+    try std.testing.expectEqual(@as(u3, 5), config.max_retries);
 }
 
 test "LLMResponse: empty choices" {

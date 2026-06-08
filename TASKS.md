@@ -71,3 +71,6 @@ This checklist tracks the implementation of recommended features to enhance the 
 - [x] Add robust HTTP request retry logic with exponential backoff inside LLMService.chat to handle transient errors and rate limits.
 - [x] Introduce fallback_model field to LLMConfig to support seamless model downgrades when primary request limits are reached.
 - [x] Add configuration validation unit tests.
+- [x] Support dynamic configuration loading from .li/config.json file in workspace root.
+- [x] Parse and propagate the actual finish_reason from LLM responses.
+- [x] Optimize allocating writer memory usage in request serialization.

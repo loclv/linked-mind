@@ -7,6 +7,9 @@
 - Robust HTTP request retry logic with exponential backoff inside LLMService.chat to handle rate limits (HTTP 429), transient server errors (HTTP 5xx), and network failures.
 - Optional fallback_model parameter in LLMConfig, allowing the query engine to seamlessly downgrade or fallback to alternative models if the primary model fails all retry attempts.
 - Configuration assertions in the test suite to verify default LLMConfig model settings.
+- Dynamic file loading support in LLMConfig.load to parse configuration from .li/config.json at workspace root, with proper deinit support.
+- Propagation of finish_reason in LLMResponse.fromJson by parsing it from choice results.
+- Optimized payload serialization memory in LLMRequest.toJson by avoiding redundant allocations.
 
 ## [Unreleased] - 2026-06-07
 
