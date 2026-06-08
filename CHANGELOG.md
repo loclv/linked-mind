@@ -4,6 +4,11 @@
 
 ### Added
 
+- Added `add-markdown` agent skill under `.agents/skills/add-markdown/SKILL.md` to guide agents when creating markdown files with proper YAML metadata, tags, and formatting (no emojis, no bold text).
+
+### Fixed
+
+- Fixed pre-existing compile error in `src/li.zig` around line 624 by using proper Zig optional payload capture syntax `if (type_opt) |t_opt|`.
 - Robust HTTP request retry logic with exponential backoff inside LLMService.chat to handle rate limits (HTTP 429), transient server errors (HTTP 5xx), and network failures.
 - Optional fallback_model parameter in LLMConfig, allowing the query engine to seamlessly downgrade or fallback to alternative models if the primary model fails all retry attempts.
 - Configuration assertions in the test suite to verify default LLMConfig model settings.

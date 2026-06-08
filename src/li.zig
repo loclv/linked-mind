@@ -621,7 +621,7 @@ fn startServer(allocator: std.mem.Allocator, io: std.Io, ws_root: []const u8, po
             };
             defer allocator.free(target_decoded);
 
-            const type_decoded = if (type_opt) urlDecode(allocator, type_opt.?) catch |err| {
+            const type_decoded = if (type_opt) |t_opt| urlDecode(allocator, t_opt) catch |err| {
                 log.err("Failed to decode type: {any}", .{err});
                 serveJsonError(&conn_writer.interface, "Failed to decode type parameter") catch |se_err| {
                     log.err("Failed to serve JSON error: {any}", .{se_err});

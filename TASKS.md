@@ -34,6 +34,7 @@ This checklist tracks the implementation of recommended features to enhance the 
   - [x] Identify and report "Orphan Notes" (no incoming/outgoing links).
   - [x] Identify "Island Nodes" (small detached cliques).
 ## ✅ Completed Tasks
+- [x] Add agent skill for creating markdown files under `.agents/skills/add-markdown/SKILL.md`.
 - [x] Optimize map-builder output and disk IO by checking if generated index matches existing file contents.
 - [x] Initial Zig implementation (v0.15.2).
 - [x] Wikilinks extraction.
