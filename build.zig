@@ -117,6 +117,16 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(map_exe);
 
+    const mdlint_exe = b.addExecutable(.{
+        .name = "mdlint",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/mdlint.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    b.installArtifact(mdlint_exe);
+
     const run_step = b.step("run", "Run the app");
 
     // This creates a RunArtifact step in the build graph. A RunArtifact step
@@ -185,6 +195,15 @@ pub fn build(b: *std.Build) void {
     });
     const run_li_tests = b.addRunArtifact(li_tests);
 
+    const mdlint_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/mdlint.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    const run_mdlint_tests = b.addRunArtifact(mdlint_tests);
+
     // A top level step for running all tests. dependOn can be called multiple
     // times and since the two run steps do not depend on one another, this will
     // make the two of them run in parallel.
@@ -194,6 +213,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_map_tests.step);
     test_step.dependOn(&run_mindmap_tests.step);
     test_step.dependOn(&run_li_tests.step);
+    test_step.dependOn(&run_mdlint_tests.step);
 
     // Just like flags, top level steps are also listed in the `--help` menu.
     //

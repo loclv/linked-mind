@@ -1,0 +1,50 @@
+[
+  {
+    "file": "ARCHITECTURE.md",
+    "errors": [
+      "missing 'name' metadata",
+      "missing 'description' metadata",
+      "missing 'tags' metadata"
+    ]
+  },
+  {
+    "file": "map.md",
+    "errors": [
+      "missing 'name' metadata",
+      "missing 'description' metadata",
+      "missing 'tags' metadata"
+    ]
+  },
+  {
+    "file": "LLM_STRATEGY.md",
+    "errors": [
+      "missing 'name' metadata",
+      "missing 'description' metadata",
+      "missing 'tags' metadata"
+    ]
+  },
+  {
+    "file": "llm_wiki.md",
+    "errors": [
+      "missing 'name' metadata",
+      "missing 'description' metadata",
+      "missing 'tags' metadata"
+    ]
+  },
+  {
+    "file": "superpowers/plans/2026-06-01-mindmap-rag-plan.md",
+    "errors": [
+      "missing 'name' metadata",
+      "missing 'description' metadata",
+      "missing 'tags' metadata"
+    ]
+  },
+  {
+    "file": "superpowers/specs/2026-06-01-mindmap-rag-design.md",
+    "errors": [
+      "missing 'name' metadata",
+      "missing 'description' metadata",
+      "missing 'tags' metadata"
+    ]
+  }
+]

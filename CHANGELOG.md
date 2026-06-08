@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added `mdlint` CLI tool (`src/mdlint.zig`) to scan files and directories recursively for Markdown files and validate that they contain non-empty `name`, `description`, and `tags` frontmatter metadata, reporting failures as a structured JSON array.
 - Added `add-markdown` agent skill under `.agents/skills/add-markdown/SKILL.md` to guide agents when creating markdown files with proper YAML metadata, tags, and formatting (no emojis, no bold text).
 
 ### Fixed

@@ -25,6 +25,7 @@ Save tokens, read less, understand more.
 - Native File Watcher: Background daemon that monitors folder changes across all format extensions, outputs JSON events, and triggers instant incremental visualizer re-exports.
 - LLM Export: Generates a single, structured `llm_knowledge.md` file designed for transformer-based LLMs to consume.
 - Mind-Map RAG: Structure long Markdown documents as concept mind-maps (section tree + causal links). Retrieve answers via LLM-guided tree traversal — no vectors, no chunking. Includes build (`li mind build`) and query (`li mind query`) subcommands.
+- Markdown metadata validation: Standalone linter CLI tool mdlint validating that Markdown files contain name, description, and tags frontmatter keys, producing a structured JSON error array upon violation.
 
 ## 🛠 Usage
 
@@ -145,6 +146,21 @@ li export --tag research --status completed
   map-builder my_notes --output custom_map.csv
   ```
 
+### 5. Markdown Metadata Linter
+
+Run the mdlint executable to scan your documentation and validate Markdown frontmatter metadata keys:
+
+```bash
+# Check a single markdown file
+mdlint my_note.md
+
+# Scan the current directory recursively
+mdlint
+
+# Scan a custom folder recursively
+mdlint my_notes
+```
+
 ## 🧠 Why Graph-based KB for LLMs?
 
 Standard RAG (Retrieval-Augmented Generation) often treats files as isolated chunks. However, human knowledge is a web. By using Linked-Mind, you provide the LLM with:
@@ -157,6 +173,7 @@ Standard RAG (Retrieval-Augmented Generation) often treats files as isolated chu
 - `src/parser.zig`: Unified parser for multiple formats (.md, .org, .txt, .pdf) extracting `[[links]]` and `#tags`.
 - `src/graph.zig`: Adjacency-list based graph representation and link resolver.
 - `src/li.zig`: Workspace-aware CLI with `init`, `scan`, `export`, `path`, `clusters`, `gc`, `similar`, `suggest`, `visualize`, `serve`.
+- `src/mdlint.zig`: Markdown metadata linter CLI validating name, description, and tags keys in YAML frontmatter.
 - `src/cache.zig`: Incremental scanning engine with `mtime` + SHA-256 cache.
 - `src/main.zig`: Legacy CLI handler (direct path mode).
 - `src/mindmap/`: Mind-Map RAG subsystem.
