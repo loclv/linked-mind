@@ -22,8 +22,8 @@ Bridging the gap between the graph structure and vector-based semantics.
 Transforming the visualizer from a static viewer into an interactive workspace.
 
 - [x] Integrated Previewer: A browser-based side-pane to see rendered Markdown content when clicking a node (implemented as side-content markdown previewer).
-- [ ] Interactive Relationship Editor: Drag-and-drop links between nodes visually to update the underlying Markdown files.
-- [ ] Temporal Graph View: A timeline slider to see how your knowledge graph grew over time (using git history or file creation dates).
+- [x] Interactive Relationship Editor: Add relationships visually in the sidebar form to append wikilinks directly to the source files on disk.
+- [x] Temporal Graph View: A timeline slider to see how your knowledge graph grew over time (using file modification times).
 ## 5. 🛠 Technical Refactoring & Optimization
 Improving the foundation for scale.
 

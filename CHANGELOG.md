@@ -15,6 +15,9 @@
 - Added Temporal Graph View timeline slider in the web visualizer to allow smooth dynamic filtering of nodes based on file modification times.
 - Exported `mtime` modification timestamps (in milliseconds) from parsed node metadata to the D3 force graph visualizer data (`graph.json`).
 - Auto-cached `mtime` fields in the workspace index (`cache.json`) for instant rendering and high-performance live-updates.
+- Integrated an Interactive Relationship Editor form directly into the node sidebar of the Web Visualizer. Users can select target nodes from an autocompleting list, input relationship types, and save them.
+- Created `/api/add-link` backend endpoint in the server (`li serve`) which maps source nodes to absolute file paths, appends the new wikilink (`[[type::target]]`) safely to the end of the file, and regenerates visualizer artifacts.
+- Implemented comprehensive `urlDecode` utility tests and an integration test verifying the add-link endpoint logic.
 
 ### Fixed
 

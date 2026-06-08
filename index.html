@@ -477,6 +477,16 @@
     <div class="relationships" id="side-relations">
       <!-- Generated dynamically -->
     </div>
+
+    <div class="add-relationship-form" id="add-rel-form-container" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.05); display: none;">
+      <h4 style="margin: 0 0 8px 0; font-size: 13px; color: var(--text-highlight);">Add Relationship</h4>
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <input type="text" id="new-rel-target" list="nodes-list" placeholder="Target Node (select or type)..." style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 6px 10px; color: #fff; font-size: 12px; outline: none; width: 85%;">
+        <datalist id="nodes-list"></datalist>
+        <input type="text" id="new-rel-type" placeholder="Relationship type (e.g. depends_on)..." style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 6px 10px; color: #fff; font-size: 12px; outline: none; width: 85%;">
+        <button onclick="handleAddRelationship()" style="background: var(--accent); border: none; border-radius: 4px; color: #fff; padding: 8px; font-size: 12px; font-weight: 600; cursor: pointer; transition: background 0.2s; width: 92%;">Add Link</button>
+      </div>
+    </div>
   </aside>
 
   <div id="timeline-container" class="hidden">
@@ -974,6 +984,7 @@
     }
 
     function openAiSidebar(query) {
+      document.getElementById('add-rel-form-container').style.display = 'none';
       document.getElementById('side-title').innerText = 'Ask AI';
       document.getElementById('side-id').innerText = 'GPT-4o';
       document.getElementById('side-group').innerText = 'N/A';
@@ -1038,6 +1049,22 @@
     }
 
     function openSidebar(node) {
+      document.getElementById('add-rel-form-container').style.display = 'block';
+      document.getElementById('new-rel-target').value = '';
+      document.getElementById('new-rel-type').value = '';
+
+      const datalist = document.getElementById('nodes-list');
+      datalist.innerHTML = '';
+      if (graphData && graphData.nodes) {
+        graphData.nodes.forEach(n => {
+          if (n.id !== node.id) {
+            const opt = document.createElement('option');
+            opt.value = n.title;
+            datalist.appendChild(opt);
+          }
+        });
+      }
+
       document.getElementById('side-title').innerText = node.title;
       document.getElementById('side-id').innerText = node.id;
       document.getElementById('side-group').innerText = node.group;
@@ -1120,6 +1147,49 @@
     function closeSidebar() {
       sidebar.classList.remove('active');
       resetAiHighlighting();
+    }
+
+    function handleAddRelationship() {
+      if (!selectedNode) return;
+      const targetInput = document.getElementById('new-rel-target');
+      const typeInput = document.getElementById('new-rel-type');
+      const targetVal = targetInput.value.trim();
+      const typeVal = typeInput.value.trim();
+
+      if (!targetVal) {
+        showToast('Please specify a target node.');
+        return;
+      }
+
+      // Check if target node exists
+      const targetNode = fullGraphData.nodes.find(n => n.title.toLowerCase() === targetVal.toLowerCase() || n.id.toLowerCase() === targetVal.toLowerCase());
+      if (!targetNode) {
+        showToast('Target node not found.');
+        return;
+      }
+
+      const url = `/api/add-link?source=${encodeURIComponent(selectedNode.title)}&target=${encodeURIComponent(targetNode.title)}&type=${encodeURIComponent(typeVal)}`;
+
+      fetch(url)
+        .then(res => {
+          if (!res.ok) {
+            return res.json().then(errData => {
+              throw new Error(errData.error || `HTTP ${res.status}`);
+            }).catch(() => {
+              throw new Error(`HTTP ${res.status}`);
+            });
+          }
+          return res.json();
+        })
+        .then(data => {
+          showToast('Relationship added!');
+          targetInput.value = '';
+          typeInput.value = '';
+          checkForUpdates();
+        })
+        .catch(err => {
+          showToast(`Failed: ${err.message}`);
+        });
     }
   </script>
 </body>

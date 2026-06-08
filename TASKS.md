@@ -56,6 +56,7 @@ This checklist tracks the implementation of recommended features to enhance the 
   - [x] Node Search in UI.
   - [x] "Ask AI" Natural Language Query integration with live RAG responses and highlighted source nodes.
   - [x] Temporal Graph View (interactive timeline slider filtering nodes based on file modification times).
+  - [x] Interactive Relationship Editor (sidebar form supporting quick targeted linking, updating notes on disk, and instant visualizer sync).
 
 ## 🛠 Zig 0.16.0 Compatibility & Migration (COMPLETED)
 - [x] Migrate codebase from Zig 0.15.2 to Zig 0.16.0 compatibility.

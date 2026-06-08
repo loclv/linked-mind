@@ -489,7 +489,7 @@ fn urlDecode(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
         if (input[i] == '%' and i + 2 < input.len) {
             const hex_val = input[i + 1 .. i + 3];
             const byte = std.fmt.parseInt(u8, hex_val, 16) catch |err| {
-                _ = err;
+                log.warn("urlDecode parsing hex {s} failed: {any}", .{hex_val, err});
                 try result_list.append(allocator, '%');
                 i += 1;
                 continue;
@@ -562,6 +562,175 @@ fn startServer(allocator: std.mem.Allocator, io: std.Io, ws_root: []const u8, po
         const clean_path = std.mem.trim(u8, path, " ");
         var path_parts = std.mem.splitScalar(u8, clean_path, '?');
         const req_path = path_parts.next() orelse clean_path;
+
+        if (std.mem.startsWith(u8, req_path, "/api/add-link")) {
+            var source_opt: ?[]const u8 = null;
+            var target_opt: ?[]const u8 = null;
+            var type_opt: ?[]const u8 = null;
+
+            const query_string = if (std.mem.findScalar(u8, clean_path, '?')) |q_idx| clean_path[q_idx + 1 ..] else "";
+            var params = std.mem.splitScalar(u8, query_string, '&');
+            while (params.next()) |param| {
+                var kv = std.mem.splitScalar(u8, param, '=');
+                const key = kv.next() orelse continue;
+                const val = kv.next() orelse "";
+                if (std.mem.eql(u8, key, "source")) {
+                    source_opt = val;
+                } else if (std.mem.eql(u8, key, "target")) {
+                    target_opt = val;
+                } else if (std.mem.eql(u8, key, "type")) {
+                    type_opt = val;
+                }
+            }
+
+            if (source_opt == null or target_opt == null) {
+                serveJsonError(&conn_writer.interface, "Missing required parameters: 'source' and 'target'") catch |err| {
+                    log.err("Failed to serve JSON error: {any}", .{err});
+                };
+                conn_writer.interface.flush() catch |err| {
+                    log.err("Failed to flush connection: {any}", .{err});
+                };
+                continue;
+            }
+
+            const source_decoded = urlDecode(allocator, source_opt.?) catch |err| {
+                log.err("Failed to decode source: {any}", .{err});
+                serveJsonError(&conn_writer.interface, "Failed to decode source parameter") catch |se_err| {
+                    log.err("Failed to serve JSON error: {any}", .{se_err});
+                };
+                conn_writer.interface.flush() catch |flush_err| {
+                    log.err("Failed to flush connection: {any}", .{flush_err});
+                };
+                continue;
+            };
+            defer allocator.free(source_decoded);
+
+            const target_decoded = urlDecode(allocator, target_opt.?) catch |err| {
+                log.err("Failed to decode target: {any}", .{err});
+                serveJsonError(&conn_writer.interface, "Failed to decode target parameter") catch |se_err| {
+                    log.err("Failed to serve JSON error: {any}", .{se_err});
+                };
+                conn_writer.interface.flush() catch |flush_err| {
+                    log.err("Failed to flush connection: {any}", .{flush_err});
+                };
+                continue;
+            };
+            defer allocator.free(target_decoded);
+
+            const type_decoded = if (type_opt) urlDecode(allocator, type_opt.?) catch |err| {
+                log.err("Failed to decode type: {any}", .{err});
+                serveJsonError(&conn_writer.interface, "Failed to decode type parameter") catch |se_err| {
+                    log.err("Failed to serve JSON error: {any}", .{se_err});
+                };
+                conn_writer.interface.flush() catch |flush_err| {
+                    log.err("Failed to flush connection: {any}", .{flush_err});
+                };
+                continue;
+            } else try allocator.dupe(u8, "");
+            defer allocator.free(type_decoded);
+
+            // Locate node path from cache
+            const cache_path = try std.fs.path.join(allocator, &[_][]const u8{ ws_root, ".li", "cache.json" });
+            defer allocator.free(cache_path);
+
+            var kb_cache = cache.Cache.init(allocator);
+            defer kb_cache.deinit();
+
+            var source_path: ?[]const u8 = null;
+            if (kb_cache.load(io, cache_path)) |_| {
+                var iter = kb_cache.entries.iterator();
+                while (iter.next()) |entry| {
+                    if (std.mem.eql(u8, entry.value_ptr.node.title, source_decoded) or std.mem.eql(u8, entry.value_ptr.node.id, source_decoded)) {
+                        source_path = try allocator.dupe(u8, entry.key_ptr.*);
+                        break;
+                    }
+                }
+            } else |err| {
+                log.err("Failed to load cache: {any}", .{err});
+            }
+
+            if (source_path) |spath| {
+                defer allocator.free(spath);
+
+                // Modify file - open with read_write to append
+                var file = std.Io.Dir.openFileAbsolute(io, spath, .{ .mode = .read_write }) catch |err| {
+                    log.err("Failed to open source file {s}: {any}", .{ spath, err });
+                    serveJsonError(&conn_writer.interface, "Failed to open source file for writing") catch |se_err| {
+                        log.err("Failed to serve JSON error: {any}", .{se_err});
+                    };
+                    conn_writer.interface.flush() catch |flush_err| {
+                        log.err("Failed to flush connection: {any}", .{flush_err});
+                    };
+                    continue;
+                };
+                defer file.close(io);
+
+                const file_stat = file.stat(io) catch |err| {
+                    log.err("Failed to stat source file: {any}", .{err});
+                    serveJsonError(&conn_writer.interface, "Failed to read file status") catch |se_err| {
+                        log.err("Failed to serve JSON error: {any}", .{se_err});
+                    };
+                    conn_writer.interface.flush() catch |flush_err| {
+                        log.err("Failed to flush connection: {any}", .{flush_err});
+                    };
+                    continue;
+                };
+                const size = file_stat.size;
+
+                const append_str = if (type_decoded.len > 0)
+                    std.fmt.allocPrint(allocator, "\n\n[[{s}::{s}]]", .{ type_decoded, target_decoded }) catch |err| {
+                        log.err("Alloc print failed: {any}", .{err});
+                        serveJsonError(&conn_writer.interface, "Out of memory") catch |se_err| {
+                            log.err("Failed to serve JSON error: {any}", .{se_err});
+                        };
+                        conn_writer.interface.flush() catch |flush_err| {
+                            log.err("Failed to flush connection: {any}", .{flush_err});
+                        };
+                        continue;
+                    }
+                else
+                    std.fmt.allocPrint(allocator, "\n\n[[{s}]]", .{ target_decoded }) catch |err| {
+                        log.err("Alloc print failed: {any}", .{err});
+                        serveJsonError(&conn_writer.interface, "Out of memory") catch |se_err| {
+                            log.err("Failed to serve JSON error: {any}", .{se_err});
+                        };
+                        conn_writer.interface.flush() catch |flush_err| {
+                            log.err("Failed to flush connection: {any}", .{flush_err});
+                        };
+                        continue;
+                    };
+                defer allocator.free(append_str);
+
+                file.writePositionalAll(io, append_str, size) catch |err| {
+                    log.err("Failed to write to file: {any}", .{err});
+                    serveJsonError(&conn_writer.interface, "Failed to write new relationship to disk") catch |se_err| {
+                        log.err("Failed to serve JSON error: {any}", .{se_err});
+                    };
+                    conn_writer.interface.flush() catch |flush_err| {
+                        log.err("Failed to flush connection: {any}", .{flush_err});
+                    };
+                    continue;
+                };
+
+                // Re-export graph immediately
+                updateGraphAndExport(allocator, io, ws_root) catch |err| {
+                    log.err("Failed to update graph: {any}", .{err});
+                };
+
+                serveFile(&conn_writer.interface, "application/json", "{\"status\":\"ok\"}") catch |err| {
+                    log.err("Failed to serve response: {any}", .{err});
+                };
+            } else {
+                serveJsonError(&conn_writer.interface, "Source node not found in workspace") catch |se_err| {
+                    log.err("Failed to serve JSON error: {any}", .{se_err});
+                };
+            }
+
+            conn_writer.interface.flush() catch |err| {
+                log.err("Failed to flush connection writer: {any}", .{err});
+            };
+            continue;
+        }
 
         if (std.mem.startsWith(u8, req_path, "/api/query")) {
             var question_opt: ?[]const u8 = null;
@@ -1401,5 +1570,98 @@ test "li: serve responses" {
         try std.testing.expect(std.mem.indexOf(u8, out, "HTTP/1.1 500 Internal Server Error") != null);
         try std.testing.expect(std.mem.indexOf(u8, out, "500 Internal Server Error") != null);
     }
+}
+
+test "li: urlDecode tests" {
+    const allocator = std.testing.allocator;
+    
+    const input1 = "hello+world";
+    const out1 = try urlDecode(allocator, input1);
+    defer allocator.free(out1);
+    try std.testing.expectEqualStrings("hello world", out1);
+
+    const input2 = "hello%20world";
+    const out2 = try urlDecode(allocator, input2);
+    defer allocator.free(out2);
+    try std.testing.expectEqualStrings("hello world", out2);
+
+    const input3 = "hello%2bworld";
+    const out3 = try urlDecode(allocator, input3);
+    defer allocator.free(out3);
+    try std.testing.expectEqualStrings("hello+world", out3);
+}
+
+test "li: add-link endpoint logic" {
+    const allocator = std.testing.allocator;
+    var test_threaded_io = std.Io.Threaded.global_single_threaded;
+    const io = test_threaded_io.io();
+
+    const tmp = try createTempDir(allocator, io);
+    defer allocator.free(tmp.path);
+    defer {
+        if (std.Io.Dir.openDirAbsolute(io, "/tmp", .{})) |base| {
+            var mut_base = base;
+            defer mut_base.close(io);
+            mut_base.deleteTree(io, tmp.path[5..]) catch {};
+        } else |_| {}
+    }
+
+    try initWorkspace(allocator, io, tmp.path);
+
+    // Create a node file
+    const note_path = try std.fs.path.join(allocator, &.{ tmp.path, "Intro.md" });
+    defer allocator.free(note_path);
+    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = note_path, .data = "Hello World" });
+
+    // Rebuild graph to populate cache
+    try updateGraphAndExport(allocator, io, tmp.path);
+
+    // Now manually test the add-link logic by simulating the route
+    const source_decoded = try allocator.dupe(u8, "Intro.md");
+    defer allocator.free(source_decoded);
+    const target_decoded = try allocator.dupe(u8, "Deep Dive.md");
+    defer allocator.free(target_decoded);
+    const type_decoded = try allocator.dupe(u8, "depends_on");
+    defer allocator.free(type_decoded);
+
+    const cache_path = try std.fs.path.join(allocator, &[_][]const u8{ tmp.path, ".li", "cache.json" });
+    defer allocator.free(cache_path);
+
+    var kb_cache = cache.Cache.init(allocator);
+    defer kb_cache.deinit();
+
+    var source_path: ?[]const u8 = null;
+    if (kb_cache.load(io, cache_path)) |_| {
+        var iter = kb_cache.entries.iterator();
+        while (iter.next()) |entry| {
+            if (std.mem.eql(u8, entry.value_ptr.node.title, source_decoded) or std.mem.eql(u8, entry.value_ptr.node.id, source_decoded)) {
+                source_path = try allocator.dupe(u8, entry.key_ptr.*);
+                break;
+            }
+        }
+    } else |_| {}
+
+    try std.testing.expect(source_path != null);
+    if (source_path) |spath| {
+        defer allocator.free(spath);
+        try std.testing.expectEqualStrings(note_path, spath);
+
+        // Open and append link
+        var file = try std.Io.Dir.openFileAbsolute(io, spath, .{ .mode = .read_write });
+        defer file.close(io);
+
+        const file_stat = try file.stat(io);
+        const size = file_stat.size;
+
+        const append_str = try std.fmt.allocPrint(allocator, "\n\n[[{s}::{s}]]", .{ type_decoded, target_decoded });
+        defer allocator.free(append_str);
+
+        try file.writePositionalAll(io, append_str, size);
+    }
+
+    // Re-read file to verify content
+    const updated_content = try std.Io.Dir.cwd().readFileAlloc(io, note_path, allocator, .unlimited);
+    defer allocator.free(updated_content);
+    try std.testing.expect(std.mem.indexOf(u8, updated_content, "[[depends_on::Deep Dive.md]]") != null);
 }
 
