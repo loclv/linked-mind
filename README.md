@@ -104,6 +104,14 @@ li export --tag research --status completed
   ```bash
   li suggest --threshold 0.1
   ```
+- Hybrid Search: Combine TF-IDF vector similarity with BFS graph traversal for contextual retrieval.
+  ```bash
+  # Basic vector search
+  li search "machine learning"
+  
+  # Constrain to nodes within 2 hops of a seed concept
+  li search "neural networks" --seed "Deep Learning" --hops 2
+  ```
 - Knowledge GC: Find orphans and islands.
   ```bash
   li gc --threshold 3

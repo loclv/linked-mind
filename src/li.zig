@@ -26,8 +26,12 @@ const builder = @import("mindmap/builder.zig");
 const serialize = @import("mindmap/serialize.zig");
 const llm_mod = @import("mindmap/llm.zig");
 const query_mod = @import("mindmap/query.zig");
+const embeddings = @import("embeddings.zig");
+const hybrid_search = @import("hybrid_search.zig");
 
 const log = std.log.scoped(.li);
+
+const version = "0.2.0";
 
 const usage =
 
@@ -42,6 +46,7 @@ const usage =
     \\  gc [--threshold]  Identify orphan and island nodes
     \\  similar <title>   Find nodes similar to the given title
     \\  suggest           Suggest missing links based on similarity
+    \\  search <query> [--seed <title>] [--hops <n>]  Hybrid BFS + vector search
     \\  visualize         Export graph.json for web visualization
     \\  watch [path]      Watch folder for changes and emit events (JSON)
     \\  mind build <file>  Build mind-map from a Markdown file (mind-map.json)
@@ -49,6 +54,7 @@ const usage =
     \\  serve [--port]    Start API and Visualizer server (default port: 8080)
     \\
     \\Global Options:
+    \\  --version         Print version and exit
     \\  --tag <tag>       Filter results by tag
     \\  --status <status> Filter results by status metadata
     \\
@@ -59,7 +65,17 @@ pub fn main(init: std.process.Init) !void {
 
     const args = try init.minimal.args.toSlice(init.arena.allocator());
 
+    if (args.len < 2) {
+        std.debug.print("{s}", .{usage});
+        return;
+    }
+
     const cmd = args[1];
+
+    if (std.mem.eql(u8, cmd, "--version") or std.mem.eql(u8, cmd, "-v")) {
+        std.debug.print("li v{s}\n", .{version});
+        return;
+    }
 
     if (std.mem.eql(u8, cmd, "init")) {
         const target_path = if (args.len > 2) args[2] else ".";
@@ -436,6 +452,56 @@ fn runCommand(allocator: std.mem.Allocator, io: std.Io, cmd: []const u8, ws_root
             }
         }
         try startServer(allocator, io, ws_root, port);
+    } else if (std.mem.eql(u8, cmd, "search")) {
+        if (args.len < 1) {
+            std.debug.print("Usage: li search <query> [--seed <title>] [--hops <n>]\n", .{});
+            return;
+        }
+
+        var query_parts: std.ArrayList(u8) = .empty;
+        defer query_parts.deinit(allocator);
+
+        var seed_title: []const u8 = "";
+        var hop_radius: usize = 2;
+        var arg_idx: usize = 0;
+        while (arg_idx < args.len) : (arg_idx += 1) {
+            if (std.mem.eql(u8, args[arg_idx], "--seed") and arg_idx + 1 < args.len) {
+                seed_title = args[arg_idx + 1];
+                arg_idx += 1;
+            } else if (std.mem.eql(u8, args[arg_idx], "--hops") and arg_idx + 1 < args.len) {
+                hop_radius = std.fmt.parseInt(usize, args[arg_idx + 1], 10) catch 2;
+                arg_idx += 1;
+            } else {
+                if (query_parts.items.len > 0) try query_parts.append(allocator, ' ');
+                try query_parts.appendSlice(allocator, args[arg_idx]);
+            }
+        }
+
+        var engine = embeddings.EmbeddingEngine.init(allocator);
+        defer engine.deinit();
+
+        var docs: std.ArrayList(embeddings.Doc) = .empty;
+        defer docs.deinit(allocator);
+
+        var node_it = kb_graph.nodes.iterator();
+        while (node_it.next()) |entry| {
+            try docs.append(allocator, .{ .path = entry.key_ptr.*, .content = entry.value_ptr.content });
+        }
+
+        try engine.buildCorpus(docs.items);
+        try engine.buildAllVectors(docs.items);
+
+        const results = try hybrid_search.search(allocator, &kb_graph, &engine, query_parts.items, seed_title, hop_radius, 10);
+        defer allocator.free(results);
+
+        if (results.len == 0) {
+            std.debug.print("No results found for '{s}'.\n", .{query_parts.items});
+        } else {
+            std.debug.print("Hybrid search results for '{s}':\n", .{query_parts.items});
+            for (results, 0..) |r, idx| {
+                std.debug.print("{d}. {s} (comb: {d:.4}, vec: {d:.4}, graph: {d:.4}, hops: {d})\n", .{ idx + 1, r.node.title, r.combined_score, r.vector_score, r.graph_score, r.hop_distance });
+            }
+        }
     } else {
         std.debug.print("Unknown command: {s}\n{s}", .{ cmd, usage });
     }

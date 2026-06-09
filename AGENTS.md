@@ -73,7 +73,7 @@ After completing a task, always make sure to add necessary comments to the code 
 - `./CHANGELOG.md`: Record all changes, fixes, and new features introduced.
 - `./README.md`: Update usage information, features, or architectural details if they have changed.
 - `./docs/` folder: Add, update, or revise the documentation files in the `docs` directory to match the latest implementation.
-- `./TASK.md`: Update task list if they have changed.
+- `./TASKS.md`: Update task list if they have changed.
 
 ## Build Commands
 

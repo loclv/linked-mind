@@ -1,5 +1,30 @@
 # CHANGELOG
 
+## [Unreleased] - 2026-06-09
+
+### Added
+
+- Added `li --version` / `li -v` command to print version info.
+- Added plain-text summary of IDEALS.md in `docs/plain/IDEALS.txt`.
+
+### Fixed
+
+- Fixed AGENTS.md reference to `TASK.md` → `TASKS.md` (caused ralph loop error).
+
+### Added
+
+- Added local TF-IDF embedding engine (`src/embeddings.zig`) for pure-Zig vector search without external dependencies. Includes vocabulary building, sparse TF-IDF vector computation, cosine similarity, and top-k query retrieval.
+- Added hybrid search engine (`src/hybrid_search.zig`) combining BFS graph traversal with TF-IDF vector similarity. New `li search <query> [--seed <title>] [--hops <n>]` CLI command finds content-similar nodes optionally constrained within N graph hops of a seed node.
+- Both modules exported from `src/root.zig` with comprehensive unit tests covering tokenization, vector similarity, corpus building, hop distance computation, and combined search scenarios.
+
+### Fixed
+
+- Fixed memory leaks in `cache` key cleanup for `EmbeddingEngine`.
+
+### Changed
+
+- Updated `IDEALS.md`: marked Local Embeddings, Hybrid Search Engine, and Multi-Format Support as completed.
+
 ## [Unreleased] - 2026-06-08
 
 ### Added

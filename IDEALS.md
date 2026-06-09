@@ -15,8 +15,8 @@ Moving beyond simple connectivity to understanding the shape and importance of k
 ## 3. 🤖 AI & LLM Deep Integration
 Bridging the gap between the graph structure and vector-based semantics.
 
-- [ ] Local Embeddings (Vector Search): Integrate `llama.cpp` or a small transformer model to generate 384d/768d embeddings locally for all nodes.
-- [ ] Hybrid Search Engine: Combine Graph BFS paths with Vector Similarity for "Contextual Retrieval" (e.g., "Find notes related to 'Quantum' that are within 2 hops of 'Computing'").
+- [x] Local Embeddings (TF-IDF Vector Search): Implemented efficient TF-IDF embedding engine in pure Zig (`src/embeddings.zig`) with vocabulary building, sparse vector cosine similarity, and top-k query support.
+- [x] Hybrid Search Engine: Combine Graph BFS paths with Vector Similarity for "Contextual Retrieval" (`src/hybrid_search.zig`). Supports `li search <query> --seed <title> --hops <n>` to find nodes similar to a query within N graph hops of a seed node.
 - [x] NLQ (Natural Language Query): Use an LLM to translate natural language questions into graph traversal queries (implemented as 'Ask AI' in visualizer querying the RAG mind-map query engine).
 ## 4. 🎨 Next-Level Web Visualizer
 Transforming the visualizer from a static viewer into an interactive workspace.
@@ -29,7 +29,7 @@ Improving the foundation for scale.
 
 - [x] O(N) Link Resolution: Replace the current O(N squared) `resolveBacklinks` with a high-performance title-to-node lookup map.
 - [x] Incremental Similarity Updates: Pre-computed word sets avoid redundant tokenization during similarity search.
-- [ ] Multi-Format Support: Expand the parser to support `.org` (Emacs), `.txt`, and even PDF extraction.
+- [x] Multi-Format Support: Expand the parser to support `.org` (Emacs), `.txt`, and even PDF extraction.
 
 >[!TIP]
 >The goal is to move Linked-Mind from a utility to a Knowledge Operating System.

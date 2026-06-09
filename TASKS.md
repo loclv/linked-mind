@@ -60,6 +60,11 @@ This checklist tracks the implementation of recommended features to enhance the 
   - [x] Temporal Graph View (interactive timeline slider filtering nodes based on file modification times).
   - [x] Interactive Relationship Editor (sidebar form supporting quick targeted linking, updating notes on disk, and instant visualizer sync).
 
+## 🚀 Phase 3: Local Embeddings & Hybrid Search (COMPLETED)
+- [x] Local TF-IDF Embeddings: Pure Zig embedding engine with vocabulary building, sparse TF-IDF vector computation, and cosine similarity.
+- [x] Hybrid Search: `li search <query> --seed <title> --hops <n>` combining TF-IDF vector similarity with BFS graph traversal.
+- [x] Comprehensive unit tests for embedding engine, hop distance computation, and combined hybrid search.
+
 ## 🛠 Zig 0.16.0 Compatibility & Migration (COMPLETED)
 - [x] Migrate codebase from Zig 0.15.2 to Zig 0.16.0 compatibility.
     - [x] Refactor I/O operations to use new `std.Io` unified interface.

@@ -11,6 +11,8 @@ pub const llm = @import("mindmap/llm.zig");
 pub const serialize = @import("mindmap/serialize.zig");
 pub const builder = @import("mindmap/builder.zig");
 pub const query = @import("mindmap/query.zig");
+pub const embeddings = @import("embeddings.zig");
+pub const hybrid_search = @import("hybrid_search.zig");
 
 pub fn bufferedPrint() !void {
     var test_threaded_io = std.Io.Threaded.global_single_threaded;

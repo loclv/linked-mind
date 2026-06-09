@@ -1,0 +1,31 @@
+Linked-Mind Phase 2: Achieved Ideals (Plain Summary)
+=====================================================
+
+1. Real-Time Intelligence & Sync
+   - Native File Watcher: background polling daemon (li watch)
+   - Live UI Rehydration: auto-updates graph.json, triggers visualizer refresh
+   - Hot-Reloading LLM Context: persistent API server (li serve) serves llm_knowledge.md via HTTP
+
+2. Advanced Graph Intelligence
+   - PageRank Centrality: identifies core concepts via influence scoring
+   - Semantic Clustering (Louvain): modularity-based community detection
+   - Link Prediction / Suggestion: content analysis for missing [[Links]]
+
+3. AI & LLM Deep Integration
+   - Local Embeddings (TF-IDF): pure-Zig embedding engine with vocabulary building,
+     sparse vector cosine similarity, and top-k query support
+   - Hybrid Search: BFS graph traversal + vector similarity
+     (li search <query> --seed <title> --hops <n>)
+   - NLQ: Natural Language Query via LLM-to-graph translation (Ask AI in visualizer)
+
+4. Web Visualizer
+   - Integrated Previewer: browser side-pane renders Markdown on node click
+   - Interactive Relationship Editor: add wikilinks visually, persisted to disk
+   - Temporal Graph View: timeline slider filtering by file modification times
+
+5. Technical Refactoring & Optimization
+   - O(N) Link Resolution: title-to-node lookup map replaces O(N^2) backlinks
+   - Incremental Similarity Updates: pre-computed word sets avoid re-tokenization
+   - Multi-Format Support: parser handles .md, .org, .txt, .pdf
+
+Status: ALL IDEALS IMPLEMENTED. Project is fully functional with 97/97 tests passing.
