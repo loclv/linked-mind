@@ -2,6 +2,29 @@
 
 ## Task Workflow
 
+### Create a Detailed Plan
+
+Create a plan file in the `docs/plan/` directory with the format: `docs/plan/YYYY-MM-DD_<short-name>.md`
+
+The plan must include all of the following sections:
+
+#### Requirements
+
+- Brief summary of the requirements.
+
+#### Selected Option and Trade-offs
+
+- Description of the approach and the rationale for choosing it.
+- The trade-offs of the approach.
+
+#### Detailed Logic Description
+
+Step-by-step description of the logic:
+
+1. Input validation → return 400 if invalid
+2. Query/Logic
+3. Response
+
 ### Validate After Every Code Change
 
 After each code change, always run these commands to confirm the project still passes build and lint checks:
