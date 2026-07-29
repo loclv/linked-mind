@@ -6,13 +6,13 @@
 //! around a buffered stdout writer used by CLI subcommands.
 const std = @import("std");
 
-pub const mindmap = @import("mindmap/mindmap.zig");
-pub const llm = @import("mindmap/llm.zig");
-pub const serialize = @import("mindmap/serialize.zig");
-pub const builder = @import("mindmap/builder.zig");
-pub const query = @import("mindmap/query.zig");
 pub const embeddings = @import("embeddings.zig");
 pub const hybrid_search = @import("hybrid_search.zig");
+pub const builder = @import("mindmap/builder.zig");
+pub const llm = @import("mindmap/llm.zig");
+pub const mindmap = @import("mindmap/mindmap.zig");
+pub const query = @import("mindmap/query.zig");
+pub const serialize = @import("mindmap/serialize.zig");
 
 pub fn bufferedPrint() !void {
     var test_threaded_io = std.Io.Threaded.global_single_threaded;
@@ -20,15 +20,6 @@ pub fn bufferedPrint() !void {
     try std.Io.File.stdout().writeStreamingAll(io, "Run `zig build test` to run the tests.\n");
 }
 
-pub fn add(a: i32, b: i32) i32 {
-    return a + b;
-}
-
-test "basic add functionality" {
-    try std.testing.expect(add(3, 7) == 10);
-}
-
 test {
     std.testing.refAllDecls(@This());
 }
-
