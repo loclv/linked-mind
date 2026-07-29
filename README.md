@@ -51,13 +51,15 @@ li init
 ```
 
 You can configure LLM settings for the query engine by creating a configuration file named .li/config.json in the workspace root. Supported options include:
-* model (string)
-* fallback_model (string or null)
-* endpoint (string)
-* api_key (string)
-* max_retries (integer)
+
+- model (string)
+- fallback_model (string or null)
+- endpoint (string)
+- api_key (string)
+- max_retries (integer)
 
 Example .li/config.json:
+
 ```json
 {
   "model": "gpt-4o",
