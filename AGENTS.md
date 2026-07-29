@@ -19,9 +19,9 @@ The plan must include all of the following sections:
 
 #### Detailed Logic Description
 
-Step-by-step description of the logic:
+Step-by-step description of the logic, for example:
 
-1. Input validation → return 400 if invalid
+1. Input validation then return 400 if invalid
 2. Query/Logic
 3. Response
 
