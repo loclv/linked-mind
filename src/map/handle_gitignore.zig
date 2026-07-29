@@ -123,6 +123,7 @@ pub const Gitignore = struct {
                     }
                 }
             } else {
+                if (globMatch(p.pattern, rel_path)) return true;
                 var segments = std.mem.splitScalar(u8, rel_path, '/');
                 while (segments.next()) |seg| {
                     if (globMatch(p.pattern, seg)) return true;
@@ -186,6 +187,7 @@ test "Gitignore load and match tests" {
             \\# comments
             \\zig-cache/
             \\*.tmp
+            \\*.log
             \\/anchored
             \\
     });
@@ -197,6 +199,8 @@ test "Gitignore load and match tests" {
     try testing.expect(try gitignore.isIgnored(allocator, temp_base, "", "zig-cache", true));
     try testing.expect(!try gitignore.isIgnored(allocator, temp_base, "", "zig-cache", false));
     try testing.expect(try gitignore.isIgnored(allocator, temp_base, "sub", "test.tmp", false));
+    try testing.expect(try gitignore.isIgnored(allocator, temp_base, "", "tech.md.log", false));
+    try testing.expect(try gitignore.isIgnored(allocator, temp_base, "sub", "tech.md.log", false));
     try testing.expect(try gitignore.isIgnored(allocator, temp_base, "", "anchored", false));
     try testing.expect(try gitignore.isIgnored(allocator, temp_base, "", "anchored", true));
     try testing.expect(!try gitignore.isIgnored(allocator, temp_base, "sub", "anchored", false));

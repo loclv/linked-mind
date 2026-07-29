@@ -12,6 +12,8 @@ pub const toon = @import("utils/toon.zig");
 pub const gitignore = @import("map/handle_gitignore.zig");
 
 
+const version = "0.2.0";
+
 pub fn main(init: std.process.Init) !void {
     const alloc = std.heap.page_allocator;
     const io = init.io;
@@ -31,7 +33,11 @@ pub fn main(init: std.process.Init) !void {
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
         const arg = args[i];
-        if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
+        if (std.mem.eql(u8, arg, "--version") or std.mem.eql(u8, arg, "-v")) {
+            const version_text = "map-builder v" ++ version ++ "\n";
+            try std.Io.File.stdout().writeStreamingAll(io, version_text);
+            return;
+        } else if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
             const help_text =
                 \\🥦 map-builder - Documentation Index Map Generator
                 \\
@@ -44,6 +50,7 @@ pub fn main(init: std.process.Init) !void {
                 \\  -j, --json            Output in JSON format (map.json)
                 \\  -t, --toon            Output in TOON format (map.toon)
                 \\  --format <format>     Output format: "csv", "json", or "toon" (default: "csv")
+                \\  -v, --version         Print version and exit
                 \\  -h, --help            Show this help message
                 \\
             ;

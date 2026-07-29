@@ -1,4 +1,4 @@
-[22]:
+[23]:
   - name: agents
     description: AGENTS.md
     path: AGENTS.md
@@ -31,7 +31,7 @@
     path: build.zig.zon
   - description: Docs
     path: docs/
-    children[5]:
+    children[8]:
       - name: architecture
         description: 🏗 Architecture & Design
         path: docs/ARCHITECTURE.md
@@ -42,11 +42,35 @@
         description: 🧠 Boosting LLM Intelligence with Linked-Mind
         path: docs/LLM_STRATEGY.md
       - name: Map Index
-        description: "The Documentation Index Map System (compiled as the map-builder executable target) scans the docs directory in your workspace, extracts metadata from each file (frontmatter for Markdown, comments and filenames for Zig), and rebuilds the structured index map representing your knowledge base."
+        description: "The Documentation Index Map System (compiled as the map-builder executable target) scans the target directory (defaulting to the current directory) in your workspace, extracts metadata from each file (frontmatter for Markdown, comments and filenames for Zig), and rebuilds the structured index map representing your knowledge base."
         path: docs/MAP_INDEX.md
       - name: llm-wiki
         description: "Source: https://gist.githubusercontent.com/karpathy/442a6bf555914893e9891c11519de94f/raw"
         path: docs/llm_wiki.md
+      - name: Features
+        description: "Overview of features, tools, and CLI subcommands in Linked-Mind."
+        path: docs/features.md
+      - description: Plain
+        path: docs/plain/
+        children[1]:
+          - name: ideals
+            description: "Linked-Mind Phase 2: Achieved Ideals (Plain Summary)"
+            path: docs/plain/IDEALS.txt
+      - description: Superpowers
+        path: docs/superpowers/
+        children[2]:
+          - description: Plans
+            path: docs/superpowers/plans/
+            children[1]:
+              - name: 2026-06-01-mindmap-rag-plan
+                description: Mind-Map RAG Implementation Plan
+                path: docs/superpowers/plans/2026-06-01-mindmap-rag-plan.md
+          - description: Specs
+            path: docs/superpowers/specs/
+            children[1]:
+              - name: 2026-06-01-mindmap-rag-design
+                description: "Mind-Map RAG: Reasoning-Based Retrieval Over Long Documents"
+                path: docs/superpowers/specs/2026-06-01-mindmap-rag-design.md
   - name: index
     description: ""
     path: index.html
@@ -66,7 +90,7 @@
             description: How to Format Inputs to ChatGPT Models
             path: mocks/raw/openai-chatgpt-inputs.md
           - name: anthropic-prompt-caching
-            description: Prompt Caching with the Claude API
+            description: Demonstrates how to use Anthropic's prompt caching feature.
             path: mocks/raw/anthropic-prompt-caching.md
           - name: ollama-api
             description: Ollama API
@@ -100,22 +124,31 @@
     path: spec.md
   - description: Src
     path: src/
-    children[9]:
+    children[13]:
       - name: map
         description: "Scans the `docs/` directory, extracts metadata from each file"
         path: src/map.zig
       - name: cache
         description: File-level parse cache for the knowledge graph.
         path: src/cache.zig
+      - name: embeddings
+        description: "Zig source: embeddings."
+        path: src/embeddings.zig
       - name: main
         description: Legacy CLI entry point for the knowledge graph tool.
         path: src/main.zig
       - name: parser
         description: Markdown parser for knowledge graph nodes.
         path: src/parser.zig
+      - name: mdlint
+        description: Markdown metadata linter CLI.
+        path: src/mdlint.zig
       - name: li
         description: Workspace-aware CLI for the Linked-Mind knowledge graph tool.
         path: src/li.zig
+      - name: hybrid-search
+        description: "Zig source: hybrid-search."
+        path: src/hybrid_search.zig
       - name: root
         description: Library root for Linked-Mind.
         path: src/root.zig
@@ -146,6 +179,24 @@
           - name: entry
             description: Entry type for the map index tree.
             path: src/map/entry.zig
+      - description: Mindmap
+        path: src/mindmap/
+        children[5]:
+          - name: builder
+            description: "Zig source: builder."
+            path: src/mindmap/builder.zig
+          - name: llm
+            description: "Zig source: llm."
+            path: src/mindmap/llm.zig
+          - name: query
+            description: "Zig source: query."
+            path: src/mindmap/query.zig
+          - name: serialize
+            description: "Zig source: serialize."
+            path: src/mindmap/serialize.zig
+          - name: mindmap
+            description: "Zig source: mindmap."
+            path: src/mindmap/mindmap.zig
   - description: Test Gc Kb
     path: test_gc_kb/
     children[5]:
@@ -179,6 +230,9 @@
       - name: file2
         description: "[[File3]]"
         path: test_kb/File2.md
+  - description: Test Tmp
+    path: test_tmp/
+    children: []
   - description: Test Ws
     path: test_ws/
     children: []

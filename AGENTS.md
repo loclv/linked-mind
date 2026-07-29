@@ -2,11 +2,12 @@
 
 ## Task Workflow
 
-### Create a Detailed Plan
+### Update "docs/features.md"
 
-Create a plan file in the `docs/plan/` directory with the format: `docs/plan/YYYY-MM-DD_<short-name>.md`
+Update "docs/features.md" to list all features of Linked-Mind.
+If not change features, do not change "docs/features.md".
 
-The plan must include all of the following sections:
+Feature information:
 
 #### Requirements
 

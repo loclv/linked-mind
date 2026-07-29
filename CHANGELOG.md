@@ -4,11 +4,13 @@
 
 ### Added
 
+- Added `-v` / `--version` CLI flag to `map-builder` executable target to print version information.
 - Added `li --version` / `li -v` command to print version info.
 - Added plain-text summary of IDEALS.md in `docs/plain/IDEALS.txt`.
 
 ### Fixed
 
+- Fixed `map-builder` CLI adding git ignored files (such as `tech.md.log`) by matching `rel_path` against unanchored wildcard patterns in `.gitignore`.
 - Fixed AGENTS.md reference to `TASK.md` → `TASKS.md` (caused ralph loop error).
 
 ### Added

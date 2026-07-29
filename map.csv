@@ -13,8 +13,11 @@ build-zig,,build.zig.zon
 architecture,🏗 Architecture & Design,docs/ARCHITECTURE.md
 llm-strategy,🧠 Boosting LLM Intelligence with Linked-Mind,docs/LLM_STRATEGY.md
 Map Index,"The Documentation Index Map System (compiled as the map-builder executable target) scans the target directory (defaulting to the current directory) in your workspace, extracts metadata from each file (frontmatter for Markdown, comments and filenames for Zig), and rebuilds the structured index map representing your knowledge base.",docs/MAP_INDEX.md
+Features,"Overview of features, tools, and CLI subcommands in Linked-Mind.",docs/features.md
 llm-wiki,Source: https://gist.githubusercontent.com/karpathy/442a6bf555914893e9891c11519de94f/raw,docs/llm_wiki.md
 map,`map.csv` - CSV Data Format for mapping knowledge base,docs/map.md
+,Plain,docs/plain/
+ideals,Linked-Mind Phase 2: Achieved Ideals (Plain Summary),docs/plain/IDEALS.txt
 ,Superpowers,docs/superpowers/
 ,Plans,docs/superpowers/plans/
 2026-06-01-mindmap-rag-plan,Mind-Map RAG Implementation Plan,docs/superpowers/plans/2026-06-01-mindmap-rag-plan.md
@@ -39,7 +42,9 @@ typed-test,Typed Test,sample_kb/typed_test.md
 TOON Specification,"TOON is a token-efficient text format for JSON-shaped data, designed primarily for LLM prompts and contexts where every token costs. It saves tokens vs JSON by declaring array shapes once (length and optional field list) and using indentation in place of braces. TOON is typically used as a translation layer: produce data as JSON in code, encode to TOON for downstream consumption, and decode back to JSON if needed.",spec.md
 ,Src,src/
 cache,File-level parse cache for the knowledge graph.,src/cache.zig
+embeddings,Zig source: embeddings.,src/embeddings.zig
 graph,In-memory knowledge graph built from parsed nodes.,src/graph.zig
+hybrid-search,Zig source: hybrid-search.,src/hybrid_search.zig
 li,Workspace-aware CLI for the Linked-Mind knowledge graph tool.,src/li.zig
 main,Legacy CLI entry point for the knowledge graph tool.,src/main.zig
 map,"Scans the `docs/` directory, extracts metadata from each file",src/map.zig
@@ -49,6 +54,7 @@ handle-gitignore,.gitignore rule loader and matcher for the directory scanner.,s
 metadata,Zig source: metadata.,src/map/metadata.zig
 scanner,Directory scanner for the map builder.,src/map/scanner.zig
 utils,String utility helpers for the map builder.,src/map/utils.zig
+mdlint,Markdown metadata linter CLI.,src/mdlint.zig
 ,Mindmap,src/mindmap/
 builder,Zig source: builder.,src/mindmap/builder.zig
 llm,Zig source: llm.,src/mindmap/llm.zig
@@ -70,4 +76,5 @@ test-json,Zig source: test-json.,test_json.zig
 file1,[[File2]],test_kb/File1.md
 file2,[[File3]],test_kb/File2.md
 file3,[[File1]],test_kb/File3.md
+,Test Tmp,test_tmp/
 ,Test Ws,test_ws/

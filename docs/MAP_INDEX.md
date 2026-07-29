@@ -114,6 +114,11 @@ zig-out/bin/map-builder my_kb --json
 
 # Scan "my_kb" and save the generated index to a custom location
 zig-out/bin/map-builder my_kb --output build/custom_map.toon
+
+# Print version information
+zig-out/bin/map-builder -v
+# or
+zig-out/bin/map-builder --version
 ```
 
 Use `zig-out/bin/map-builder --help` or `-h` to view the comprehensive help and usage details.

@@ -152,6 +152,9 @@ li export --tag research --status completed
 
   # Generates map.csv from custom target folder and writes to custom output path
   map-builder my_notes --output custom_map.csv
+
+  # Print version information
+  map-builder -v
   ```
 
 ### 5. Markdown Metadata Linter
