@@ -1,0 +1,56 @@
+[global]
+# Disable specific rules
+# MD010 no-hard-tabs, MD013 line-length, MD022 blanks-around-headings,
+# MD024 no-duplicate-heading, MD029 ol-prefix, MD031 blanks-around-fences,
+# MD032 blanks-around-lists, MD041 first-line-heading,
+# MD058 blanks-around-tables, MD060 table-column-style
+disable = [
+    "MD007",
+    "MD010",
+    "MD013",
+    "MD022",
+    "MD024",
+    "MD029",
+    "MD031",
+    "MD032",
+    "MD041",
+    "MD058",
+    "MD060",
+    "MD063",
+]
+
+# Add opt-in rules on top of defaults (additive)
+extend-enable = ["MD063"]
+
+# Exclude files and directories
+exclude = [
+    "node_modules",
+    "build",
+    "dist",
+    "*.tmp.md",
+    "docs/generated/**"
+]
+
+# Include only specific files
+include = [
+    "README.md",
+    "docs/**/*.md"
+]
+
+# Don't respect .gitignore files
+respect-gitignore = false
+
+# Set markdown flavor (standard, gfm, mkdocs, mdx, pandoc, quarto, obsidian, kramdown, azure_devops, myst, hugo, mdg, gh-aw)
+flavor = "mkdocs"
+
+# Per-file flavor overrides (pattern → flavor)
+[per-file-flavor]
+"**/*.mdx" = "mdx"
+"notebooks/**/*.qmd" = "quarto"
+
+# Disable specific rules for specific files
+[per-file-ignores]
+# MD033 no-inline-html
+"README.md" = ["MD033"]  # Allow inline HTML in README
+"docs/api/**/*.md" = ["MD013", "MD041"]  # Generated API docs
+"SUMMARY.md" = ["MD025"]  # MkDocs/mdBook table of contents
