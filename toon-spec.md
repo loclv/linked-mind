@@ -131,7 +131,7 @@ Out of scope:
 
 ### Example (Informative)
 
-```
+```text
 users[2]{id,name,role}:
   1,Alice,admin
   2,Bob,user
@@ -276,7 +276,7 @@ TOON is a deterministic, line-oriented, indentation-based notation.
   - Otherwise, decode an object.
   - An empty document (no non-empty lines after ignoring trailing newline(s) and ignorable blank lines) decodes to an empty object `{}`.
   - In strict mode, if there are two or more non-empty depth-0 lines that are neither headers nor key-value lines, the document is invalid. Example of invalid input (strict mode):
-    ```
+    ```text
     hello
     world
     ```
@@ -315,7 +315,7 @@ Spacing and delimiters:
 
 Normative header grammar (ABNF):
 
-```
+```text
 ; Core rules per RFC 5234 §B.1 (ALPHA, DIGIT, DQUOTE, HTAB)
 
 bracket-seg   = "[" length [ delimsym ] "]"
@@ -790,8 +790,6 @@ When this specification reaches Candidate Standard status, formal registration w
 
 ## 18. Versioning and Extensibility
 
-For versioning policy and version history, see [VERSIONING.md](./VERSIONING.md) and [CHANGELOG.md](./CHANGELOG.md).
-
 ### Extensibility
 
 - Backward-compatible evolutions should preserve current headers, quoting rules, and indentation semantics.
@@ -808,7 +806,7 @@ Implementers should be aware that this is a community specification and not a fo
 
 Objects:
 
-```
+```text
 id: 123
 name: Ada
 active: true
@@ -816,7 +814,7 @@ active: true
 
 Nested objects:
 
-```
+```text
 user:
   id: 123
   name: Ada
@@ -824,13 +822,13 @@ user:
 
 Primitive arrays:
 
-```
+```text
 tags[3]: admin,ops,dev
 ```
 
 Arrays of arrays (primitives):
 
-```
+```text
 pairs[2]:
   - [2]: 1,2
   - [2]: 3,4
@@ -838,7 +836,7 @@ pairs[2]:
 
 Tabular arrays:
 
-```
+```text
 items[2]{sku,qty,price}:
   A1,2,9.99
   B2,1,14.5
@@ -846,7 +844,7 @@ items[2]{sku,qty,price}:
 
 Mixed arrays:
 
-```
+```text
 items[3]:
   - 1
   - a: 1
@@ -855,7 +853,7 @@ items[3]:
 
 Objects as list items (first field on hyphen line):
 
-```
+```text
 items[2]:
   - id: 1
     name: First
@@ -866,7 +864,7 @@ items[2]:
 
 Nested tabular inside a list item:
 
-```
+```text
 items[1]:
   - users[2]{id,name}:
       1,Ada
@@ -878,7 +876,7 @@ Note: When a list-item object has a tabular array as its first field, encoders e
 
 Delimiter variations:
 
-```
+```text
 items[2	]{sku	name	qty	price}:
   A1	Widget	2	9.99
   B2	Gadget	1	14.5
@@ -888,7 +886,7 @@ tags[3|]: reading|gaming|coding
 
 Quoted colons and disambiguation (rows continue; colon is inside quotes):
 
-```
+```text
 links[2]{id,url}:
   1,"http://a:b"
   2,"https://example.com?q=a:b"
@@ -896,7 +894,7 @@ links[2]{id,url}:
 
 Error cases (invalid TOON):
 
-```
+```text
 key value
 
 name: "bad\xescape"
@@ -913,7 +911,7 @@ tags[5]: a,b,c
 
 Edge cases:
 
-```
+```text
 name: ""
 
 tags: []
@@ -938,7 +936,7 @@ decimal: 0.3333333333333333
 
 Quoted keys with arrays (keys requiring quoting per §7.3):
 
-```
+```text
 "my-key"[3]: 1,2,3
 
 "x-items"[2]{id,name}:
@@ -957,7 +955,7 @@ Encoding - basic folding (safe mode, depth=Infinity):
 
 Input: `{"a": {"b": {"c": 1}}}`
 
-```
+```text
 a.b.c: 1
 ```
 
@@ -965,7 +963,7 @@ Encoding - folding with inline array:
 
 Input: `{"data": {"meta": {"items": ["x", "y"]}}}`
 
-```
+```text
 data.meta.items[2]: x,y
 ```
 
@@ -973,7 +971,7 @@ Encoding - folding with tabular array:
 
 Input: `{"a": {"b": {"items": [{"id": 1, "name": "A"}, {"id": 2, "name": "B"}]}}}`
 
-```
+```text
 a.b.items[2]{id,name}:
   1,A
   2,B
@@ -983,7 +981,7 @@ Encoding - partial folding (flattenDepth=2):
 
 Input: `{"a": {"b": {"c": {"d": 1}}}}`
 
-```
+```text
 a.b:
   c:
     d: 1
@@ -999,7 +997,7 @@ Decoding - deep merge (multiple expanded keys):
 
 Input with options `{expandPaths: "safe"}`:
 
-```
+```text
 a.b.c: 1
 a.b.d: 2
 a.e: 3
@@ -1011,7 +1009,7 @@ Decoding - conflict error (strict=true, default):
 
 Input with options `{expandPaths: "safe", strict: true}`:
 
-```
+```text
 a.b: 1
 a: 2
 ```
@@ -1022,7 +1020,7 @@ Decoding - conflict LWW (strict=false):
 
 Input with options `{expandPaths: "safe", strict: false}`:
 
-```
+```text
 a.b: 1
 a: 2
 ```
@@ -1091,7 +1089,9 @@ These sketches illustrate structure and common decoding helpers. They are inform
 
 ## Appendix C: Test Suite and Compliance (Informative)
 
-A language-agnostic reference test suite is maintained at [tests/](./tests/); see [tests/README.md](./tests/README.md) for the per-fixture index. The suite is versioned alongside this specification. Implementations are encouraged to validate against it, but conformance is determined solely by adherence to the normative requirements in Sections 1–16; test coverage does not define the specification.
+A language-agnostic reference test suite is maintained at tests folder.
+
+The suite is versioned alongside this specification. Implementations are encouraged to validate against it, but conformance is determined solely by adherence to the normative requirements in Sections 1–16; test coverage does not define the specification.
 
 Host-type normalization tests (e.g., BigInt, Date, Set, Map) are language-specific and maintained in implementation repositories. See Appendix F for normalization guidance.
 
