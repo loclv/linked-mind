@@ -33,13 +33,13 @@ huggingface-text-generation,Text Generation with Transformers,mocks/raw/huggingf
 ollama-api,Ollama API,mocks/raw/ollama-api.md
 openai-chatgpt-inputs,How to Format Inputs to ChatGPT Models,mocks/raw/openai-chatgpt-inputs.md
 ,No Ws,no_ws/
+rumdl,,rumdl.toml
 ,Sample Kb,sample_kb/
 first,This is the first note about Zig and knowledge bases. Zig is fast.,sample_kb/first.md
 meta-test,Metadata Test,sample_kb/meta_test.md
 second,This is the second note about knowledge base systems. Knowledge is power.,sample_kb/second.md
 third,This is the third node #advanced [[first.md]] [[meta_test.md]],sample_kb/third.md
 typed-test,Typed Test,sample_kb/typed_test.md
-TOON Specification,"TOON is a token-efficient text format for JSON-shaped data, designed primarily for LLM prompts and contexts where every token costs. It saves tokens vs JSON by declaring array shapes once (length and optional field list) and using indentation in place of braces. TOON is typically used as a translation layer: produce data as JSON in code, encode to TOON for downstream consumption, and decode back to JSON if needed.",spec.md
 ,Src,src/
 cache,File-level parse cache for the knowledge graph.,src/cache.zig
 embeddings,Zig source: embeddings.,src/embeddings.zig
@@ -78,3 +78,4 @@ file2,[[File3]],test_kb/File2.md
 file3,[[File1]],test_kb/File3.md
 ,Test Tmp,test_tmp/
 ,Test Ws,test_ws/
+TOON Specification,"TOON is a token-efficient text format for JSON-shaped data, designed primarily for LLM prompts and contexts where every token costs. It saves tokens vs JSON by declaring array shapes once (length and optional field list) and using indentation in place of braces. TOON is typically used as a translation layer: produce data as JSON in code, encode to TOON for downstream consumption, and decode back to JSON if needed.",toon-spec.md

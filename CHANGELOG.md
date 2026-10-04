@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## [Unreleased] - 2026-10-04
+
+### Changed
+
+- Differentiated fallback module descriptions in metadata scanner by file extension (.js -> JavaScript, .ts -> TypeScript, .jsx -> JSX, .tsx -> TSX) instead of a combined label.
+
 ## [Unreleased] - 2026-06-09
 
 ### Added

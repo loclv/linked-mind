@@ -120,6 +120,17 @@ pub fn extractJsTsDesc(content: []const u8) []const u8 {
     return "";
 }
 
+/// Maps JS/TS family file extension (.js, .ts, .jsx, .tsx) to its descriptive language or format name.
+/// Used to generate specific fallback descriptions rather than a generic combined label.
+/// Returns null if the extension does not match the JS/TS family.
+pub fn jsTsKind(basename: []const u8) ?[]const u8 {
+    if (std.mem.endsWith(u8, basename, ".js")) return "JavaScript";
+    if (std.mem.endsWith(u8, basename, ".ts")) return "TypeScript";
+    if (std.mem.endsWith(u8, basename, ".jsx")) return "JSX";
+    if (std.mem.endsWith(u8, basename, ".tsx")) return "TSX";
+    return null;
+}
+
 /// Extracts the description from a Rust file.
 ///
 /// Strategy (in priority order):
@@ -338,11 +349,9 @@ pub fn fileMetadata(alloc: std.mem.Allocator, io: std.Io, full_path: []const u8,
     }
 
     // JS/TS family: extract from /** block or first // comment.
-    if (std.mem.endsWith(u8, basename, ".js") or
-        std.mem.endsWith(u8, basename, ".ts") or
-        std.mem.endsWith(u8, basename, ".jsx") or
-        std.mem.endsWith(u8, basename, ".tsx"))
-    {
+    // Each extension (.js, .ts, .jsx, .tsx) maps to its respective language label
+    // so fallback descriptions distinguish TypeScript, JSX, TSX, and JavaScript.
+    if (jsTsKind(basename)) |kind| {
         const name = try utils.kebabFromFilename(alloc, basename);
         errdefer alloc.free(name);
         const desc_raw = extractJsTsDesc(content);
@@ -350,7 +359,7 @@ pub fn fileMetadata(alloc: std.mem.Allocator, io: std.Io, full_path: []const u8,
             const desc = try alloc.dupe(u8, desc_raw);
             return .{ .name = name, .description = desc };
         }
-        const desc = try std.fmt.allocPrint(alloc, "JavaScript/TypeScript module: {s}.", .{name});
+        const desc = try std.fmt.allocPrint(alloc, "{s} module: {s}.", .{ kind, name });
         return .{ .name = name, .description = desc };
     }
 
@@ -596,4 +605,72 @@ test "extractTxtMetadata: extracts first non-empty line" {
 
     try std.testing.expectEqualStrings("simple", meta.name);
     try std.testing.expectEqualStrings("First actual line of plain text.", meta.description);
+}
+
+test "jsTsKind: maps extensions to specific language names" {
+    try std.testing.expectEqualStrings("JavaScript", jsTsKind("index.js").?);
+    try std.testing.expectEqualStrings("TypeScript", jsTsKind("app.ts").?);
+    try std.testing.expectEqualStrings("JSX", jsTsKind("Component.jsx").?);
+    try std.testing.expectEqualStrings("TSX", jsTsKind("App.tsx").?);
+    try std.testing.expect(jsTsKind("file.zig") == null);
+    try std.testing.expect(jsTsKind("file.rs") == null);
+}
+
+test "fileMetadata: fallback descriptions for JS/TS family" {
+    const alloc = std.testing.allocator;
+    var threaded = std.Io.Threaded.global_single_threaded;
+    const io = threaded.io();
+
+    var base = try std.Io.Dir.openDirAbsolute(io, "/tmp", .{});
+    defer base.close(io);
+
+    var rand_bytes: [8]u8 = undefined;
+    try io.randomSecure(&rand_bytes);
+    const hex_name = std.fmt.bytesToHex(rand_bytes, .lower);
+    var buf: [32]u8 = undefined;
+    const dir_name = try std.fmt.bufPrint(&buf, "li-test-{s}", .{&hex_name});
+    var tmp_dir = try base.createDirPathOpen(io, dir_name, .{});
+    defer {
+        tmp_dir.close(io);
+        base.deleteTree(io, dir_name) catch {};
+    }
+
+    const tmp_path = try std.fs.path.join(alloc, &.{ "/tmp", dir_name });
+    defer alloc.free(tmp_path);
+
+    // .ts
+    try tmp_dir.writeFile(io, .{ .sub_path = "app.ts", .data = "const x = 1;\n" });
+    const ts_path = try std.fs.path.join(alloc, &.{ tmp_path, "app.ts" });
+    defer alloc.free(ts_path);
+    const meta_ts = try fileMetadata(alloc, io, ts_path, "app.ts");
+    defer meta_ts.deinit(alloc);
+    try std.testing.expectEqualStrings("app", meta_ts.name);
+    try std.testing.expectEqualStrings("TypeScript module: app.", meta_ts.description);
+
+    // .js
+    try tmp_dir.writeFile(io, .{ .sub_path = "index.js", .data = "const y = 2;\n" });
+    const js_path = try std.fs.path.join(alloc, &.{ tmp_path, "index.js" });
+    defer alloc.free(js_path);
+    const meta_js = try fileMetadata(alloc, io, js_path, "index.js");
+    defer meta_js.deinit(alloc);
+    try std.testing.expectEqualStrings("index", meta_js.name);
+    try std.testing.expectEqualStrings("JavaScript module: index.", meta_js.description);
+
+    // .jsx
+    try tmp_dir.writeFile(io, .{ .sub_path = "view.jsx", .data = "export default () => null;\n" });
+    const jsx_path = try std.fs.path.join(alloc, &.{ tmp_path, "view.jsx" });
+    defer alloc.free(jsx_path);
+    const meta_jsx = try fileMetadata(alloc, io, jsx_path, "view.jsx");
+    defer meta_jsx.deinit(alloc);
+    try std.testing.expectEqualStrings("view", meta_jsx.name);
+    try std.testing.expectEqualStrings("JSX module: view.", meta_jsx.description);
+
+    // .tsx
+    try tmp_dir.writeFile(io, .{ .sub_path = "button.tsx", .data = "export default () => null;\n" });
+    const tsx_path = try std.fs.path.join(alloc, &.{ tmp_path, "button.tsx" });
+    defer alloc.free(tsx_path);
+    const meta_tsx = try fileMetadata(alloc, io, tsx_path, "button.tsx");
+    defer meta_tsx.deinit(alloc);
+    try std.testing.expectEqualStrings("button", meta_tsx.name);
+    try std.testing.expectEqualStrings("TSX module: button.", meta_tsx.description);
 }
