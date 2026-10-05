@@ -1,0 +1,6 @@
+logs/
+zig-out/
+.zig-cache/
+mocks/
+
+.vscode
